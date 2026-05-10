@@ -241,7 +241,9 @@ def build(file: str, output: str, project: str):
     try:
         # 1. Parse & Analyze
         tree = Parser.parse(source)
-        analyzer = SemanticAnalyzer()
+        # Pass SDK path to analyzer for Phase 7 Dynamic Bridging
+        sdk_path = os.environ.get("ANDROID_HOME") or "/home/appinv/Android/Sdk"
+        analyzer = SemanticAnalyzer(sdk_path=sdk_path)
         global_scope = analyzer.analyze(tree)
         
         # 2. Build IR

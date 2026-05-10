@@ -209,7 +209,16 @@ class KotlinEmitter:
             self._write(f"val {self._v(inst.result)} = {val}")
         elif isinstance(inst, ClassInit):
             args_str = ", ".join(f"{self._v(arg)}" for arg in inst.args)
-            self._write(f"val {self._v(inst.result)} = {inst.class_name}().apply {{ __init__({args_str}) }}")
+            # Check if it's a bridged class (has dots in FQN)
+            fqn = inst.result.type.name
+            if "." in fqn:
+                # Android SDK classes often need context
+                ctx_arg = "context" if self.current_func_is_ui else ""
+                all_args = ", ".join(filter(None, [ctx_arg, args_str]))
+                self._write(f"val {self._v(inst.result)} = {fqn}({all_args})")
+            else:
+                # Internal class
+                self._write(f"val {self._v(inst.result)} = {inst.class_name}().apply {{ __init__({args_str}) }}")
 
     def _v(self, val: IRValue) -> str:
         return f"v_{val.id}"
@@ -354,7 +363,16 @@ class KotlinEmitter:
 
         elif isinstance(inst, ClassInit):
             args_str = ", ".join(f"{self._v(arg)}" for arg in inst.args)
-            self._write(f"val {self._v(inst.result)} = {inst.class_name}().apply {{ __init__({args_str}) }}")
+            # Check if it's a bridged class (has dots in FQN)
+            fqn = inst.result.type.name
+            if "." in fqn:
+                # Android SDK classes often need context
+                ctx_arg = "context" if self.current_func_is_ui else ""
+                all_args = ", ".join(filter(None, [ctx_arg, args_str]))
+                self._write(f"val {self._v(inst.result)} = {fqn}({all_args})")
+            else:
+                # Internal class
+                self._write(f"val {self._v(inst.result)} = {inst.class_name}().apply {{ __init__({args_str}) }}")
 
         elif isinstance(inst, AttributeGet):
             self._write(f"val {self._v(inst.result)} = {self._v(inst.obj)}.{inst.attr_name}")

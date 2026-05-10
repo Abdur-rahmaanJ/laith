@@ -1,9 +1,11 @@
 import ast
+import os
 from typing import Optional, List, Union, Dict, Any
 from laith.compiler.frontend.symbols import (
     Scope, Symbol, SymbolKind, Type, 
     INT_TYPE, STR_TYPE, BOOL_TYPE, VOID_TYPE, ANY_TYPE
 )
+from laith.compiler.frontend.bridge import BridgeManager
 
 class SemanticError(Exception):
     def __init__(self, message: str, node: ast.AST):
@@ -11,10 +13,17 @@ class SemanticError(Exception):
         self.node = node
 
 class SemanticAnalyzer(ast.NodeVisitor):
-    def __init__(self):
+    def __init__(self, sdk_path: Optional[str] = None):
         self.global_scope = Scope(name="global", kind="module")
         self.current_scope = self.global_scope
         
+        # Initialize bridge if SDK path provided
+        self.bridge = None
+        if sdk_path:
+             self.bridge = BridgeManager(sdk_path)
+        elif os.environ.get("ANDROID_HOME"):
+             self.bridge = BridgeManager(os.environ.get("ANDROID_HOME"))
+
         # Register built-ins
         self._register_builtins()
 
@@ -149,28 +158,53 @@ class SemanticAnalyzer(ast.NodeVisitor):
                 decorators.append({"name": dec.id, "args": {}})
         return decorators
 
+    def visit_Call(self, node: ast.Call):
+        if isinstance(node.func, ast.Name):
+            name = node.func.id
+            symbol = self.current_scope.lookup(name)
+            if not symbol and self.bridge:
+                # Try to resolve via Android SDK
+                fqn = self.bridge.find_class_by_short_name(name)
+                if fqn:
+                    metadata = self.bridge.lookup_class(fqn)
+                    if metadata:
+                        # Define class symbol dynamically
+                        symbol = Symbol(
+                            name=name,
+                            kind=SymbolKind.CLASS,
+                            type=Type(fqn),
+                            metadata=metadata
+                        )
+                        self.global_scope.define(symbol)
+
+        # Generic visit to children (arguments)
+        self.generic_visit(node)
+
     def visit_Attribute(self, node: ast.Attribute):
         # We need to know the type of the base to resolve the attribute
         # For MVP, assume it's an instance attribute
         return ANY_TYPE
 
     def visit_Assign(self, node: ast.Assign):
+        # Visit value to resolve symbols
+        self.visit(node.value)
+
         # For MVP, we only support simple assignments to names
         if len(node.targets) != 1 or not isinstance(node.targets[0], ast.Name):
-            # We can expand this later
             return
 
         target = node.targets[0]
         name = target.id
         
-        # In a real compiler, we'd do type inference here
-        # For now, if it's a new variable, we define it as ANY if not previously known
         symbol = self.current_scope.lookup(name)
         if not symbol:
             symbol = Symbol(name=name, kind=SymbolKind.VARIABLE, type=ANY_TYPE)
             self.current_scope.define(symbol)
 
     def visit_AnnAssign(self, node: ast.AnnAssign):
+        if node.value:
+             self.visit(node.value)
+
         if not isinstance(node.target, ast.Name):
             return
             
