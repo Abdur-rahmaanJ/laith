@@ -128,6 +128,20 @@ class SemanticAnalyzer(ast.NodeVisitor):
         if isinstance(node.target, ast.Name):
             self.current_scope.define(Symbol(name=node.target.id, kind=SymbolKind.VARIABLE, type=self._resolve_type(node.annotation)))
 
+    def visit_Try(self, node: ast.Try):
+        # Visit body
+        for stmt in node.body: self.visit(stmt)
+        # Visit handlers
+        for handler in node.handlers:
+            if handler.name:
+                 # Define the exception variable in the current scope
+                 self.current_scope.define(Symbol(name=handler.name, kind=SymbolKind.VARIABLE, type=ANY_TYPE))
+            for stmt in handler.body: self.visit(stmt)
+        # We don't support 'else' or 'finally' yet in Phase 12
+
+    def visit_Raise(self, node: ast.Raise):
+        if node.exc: self.visit(node.exc)
+
     def _resolve_type(self, node: Optional[ast.AST]) -> Type:
         if isinstance(node, ast.Name):
             mapping = {"int": INT_TYPE, "str": STR_TYPE, "bool": BOOL_TYPE, "None": VOID_TYPE}

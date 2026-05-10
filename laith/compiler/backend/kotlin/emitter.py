@@ -245,3 +245,17 @@ class KotlinEmitter:
         elif isinstance(inst, Return):
             if inst.value: self._write(f"return {self._v(inst.value)}", inst)
             else: self._write("return", inst)
+        elif isinstance(inst, TryExcept):
+            self._write("try {", inst)
+            self.indent_level += 1
+            self.visit_block(inst.body)
+            self.indent_level -= 1
+            exc_var = inst.exc_name or "e"
+            self._write(f"}} catch ({exc_var}: Exception) {{")
+            self.indent_level += 1
+            self.visit_block(inst.handler)
+            self.indent_level -= 1
+            self._write("}")
+        elif isinstance(inst, Raise):
+            # In Phase 12 we'll wrap the raised value in an Exception if it's not one
+            self._write(f"throw Exception(${self._v(inst.value)}.toString())", inst)

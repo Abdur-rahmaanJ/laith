@@ -162,6 +162,34 @@ class IRBuilder:
         val = self.visit_expr(node.value) if node.value else None
         self._add_inst(Return(value=val), node)
 
+    def visit_Try(self, node: ast.Try):
+        # 1. Build body block
+        body_block = IRBlock(label=f"try_body_{self._next_id()}")
+        prev_block = self.current_block
+        self.current_block = body_block
+        for stmt in node.body: self.visit(stmt)
+        
+        # 2. Build handler block (Phase 12: assume one generic catch)
+        handler_block = IRBlock(label=f"except_handler_{self._next_id()}")
+        self.current_block = handler_block
+        exc_name = None
+        if node.handlers:
+             handler = node.handlers[0]
+             exc_name = handler.name
+             if exc_name:
+                  # Bind handler.name to a placeholder IRValue for the exception
+                  self._set_value(exc_name, IRValue(id=exc_name, type=ANY_TYPE))
+             for stmt in handler.body: self.visit(stmt)
+        
+        # 3. Add TryExcept instruction to parent block
+        self.current_block = prev_block
+        self._add_inst(TryExcept(body=body_block, handler=handler_block, exc_name=exc_name), node)
+
+    def visit_Raise(self, node: ast.Raise):
+        if node.exc:
+            val = self.visit_expr(node.exc)
+            self._add_inst(Raise(value=val), node)
+
     def visit_Expr(self, node: ast.Expr): self.visit_expr(node.value)
 
     def visit_Attribute(self, node: ast.Attribute) -> IRValue:

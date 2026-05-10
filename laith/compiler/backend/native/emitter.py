@@ -1,6 +1,7 @@
 from laith.compiler.ir.nodes import (
     IRModule, IRFunction, IRBlock, IRInstruction, IRValue,
-    Constant, BinaryOp, Call, Return, IRClass, IRField, IRMethod
+    Constant, BinaryOp, Call, Return, IRClass, IRField, IRMethod,
+    TryExcept, Raise
 )
 from typing import List, Dict, Any, Union
 
@@ -32,6 +33,7 @@ class CPPEmitter:
             "#include <string>",
             "#include <vector>",
             "#include <cstdint>",
+            "#include <stdexcept>",
             "",
             "extern \"C\" {"
         ]
@@ -115,3 +117,18 @@ class CPPEmitter:
                 self._write(f"return {self._v(inst.value)};")
             else:
                 self._write("return;")
+
+        elif isinstance(inst, TryExcept):
+            self._write("try {")
+            self.indent_level += 1
+            self.visit_block(inst.body)
+            self.indent_level -= 1
+            exc_var = inst.exc_name or "e"
+            self._write(f"}} catch (const std::exception& {exc_var}) {{")
+            self.indent_level += 1
+            self.visit_block(inst.handler)
+            self.indent_level -= 1
+            self._write("}")
+
+        elif isinstance(inst, Raise):
+            self._write(f"throw std::runtime_error(\"Exception\"); // raise {self._v(inst.value)}")

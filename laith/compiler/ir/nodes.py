@@ -249,6 +249,31 @@ class ClassInit(IRInstruction):
         return f"{self.result} = new {self.class_name}({args_str})"
 
 @dataclass(kw_only=True)
+class TryExcept(IRInstruction):
+    body: IRBlock
+    handler: IRBlock
+    exc_name: Optional[str] = None # 'e' in except Exception as e
+    
+    def has_side_effects(self) -> bool:
+        return True
+
+    def __repr__(self) -> str:
+        return f"try {{\n{self.body}\n}} except {self.exc_name or ''} {{\n{self.handler}\n}}"
+
+@dataclass(kw_only=True)
+class Raise(IRInstruction):
+    value: IRValue
+    
+    def get_operands(self) -> List[IRValue]:
+        return [self.value]
+
+    def has_side_effects(self) -> bool:
+        return True
+
+    def __repr__(self) -> str:
+        return f"raise {self.value.id}"
+
+@dataclass(kw_only=True)
 class AttributeGet(IRInstruction):
     obj: IRValue
     attr_name: str
