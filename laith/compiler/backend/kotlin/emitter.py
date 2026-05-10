@@ -176,6 +176,10 @@ class KotlinEmitter:
                 self._write(f"val {self._v(inst.result)} = {l_expr} {op} {r_expr}", inst)
         elif isinstance(inst, Call):
             args_str = ", ".join(f"{self._v(arg)}" for arg in inst.args)
+            if inst.func_name == "vibrate":
+                 self._write(f"PythonRuntime.vibrate(context, ({args_str} as? Number)?.toLong() ?: 500L)", inst)
+                 return
+            
             if inst.result: self._write(f"val {self._v(inst.result)} = {inst.func_name}({args_str})", inst)
             else: self._write(f"{inst.func_name}({args_str})", inst)
         elif isinstance(inst, MethodCall):
