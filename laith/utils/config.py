@@ -19,6 +19,7 @@ class SDKConfig:
 class AppConfig:
     name: str = "LaithApp"
     namespace: str = "com.example.laithapp"
+    version: str = "1.0"
     identity: AppIdentity = field(default_factory=AppIdentity)
     sdk: SDKConfig = field(default_factory=SDKConfig)
     dependencies: Dict[str, List[str]] = field(default_factory=lambda: {
@@ -32,8 +33,7 @@ class AppConfig:
             "androidx.compose.ui:ui-tooling-preview",
             "androidx.compose.material3:material3",
             "androidx.work:work-runtime-ktx:2.9.0",
-            "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3",
-            "com.google.android.material:material:1.11.0"
+            "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3"
         ]
     })
     features: Dict[str, bool] = field(default_factory=lambda: {

@@ -40,27 +40,26 @@ class ProjectGenerator:
             # Create a placeholder JNI bridge to satisfy CMake target requirements
             jni_dest = os.path.join(self.project_path, "app", "src", "main", "cpp", "jni_bridge.cpp")
             if not os.path.exists(jni_dest):
-                with open(jni_dest, "w") as f:
-                    f.write('#include <jni.h>\nextern "C" {\n}\n')
+                self._write_file(jni_dest, '#include <jni.h>\nextern "C" {\n}\n')
         
-        with open(os.path.join(self.project_path, "settings.gradle.kts"), "w") as f:
-            f.write(f'rootProject.name = "{self.config["app_name"]}"\ninclude(":app")\n')
+        self._write_file(os.path.join(self.project_path, "settings.gradle.kts"), 
+                        f'rootProject.name = "{self.config["app_name"]}"\ninclude(":app")\n')
 
         # Create local.properties for SDK path
         sdk_dir = os.environ.get("ANDROID_HOME") or os.environ.get("ANDROID_SDK_ROOT") or "/home/appinv/Android/Sdk"
-        with open(os.path.join(self.project_path, "local.properties"), "w") as f:
-            f.write(f"sdk.dir={sdk_dir}\n")
+        self._write_file(os.path.join(self.project_path, "local.properties"), f"sdk.dir={sdk_dir}\n")
 
         # Create gradle.properties for AndroidX and Performance
-        with open(os.path.join(self.project_path, "gradle.properties"), "w") as f:
-            f.write("android.useAndroidX=true\n")
-            f.write("android.enableJetifier=true\n")
-            f.write("org.gradle.parallel=true\n")
-            f.write("org.gradle.caching=true\n")
-            f.write("org.gradle.vfs.watch=true\n")
-            f.write("org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=512m\n")
-            f.write("android.nonTransitiveRClass=true\n")
-            f.write("android.nonFinalResIds=true\n")
+        properties_content = """android.useAndroidX=true
+android.enableJetifier=true
+org.gradle.parallel=true
+org.gradle.caching=true
+org.gradle.vfs.watch=true
+org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=512m
+android.nonTransitiveRClass=true
+android.nonFinalResIds=true
+"""
+        self._write_file(os.path.join(self.project_path, "gradle.properties"), properties_content)
 
         # 3. Copy runtime files
         # Find runtime files relative to this script
@@ -74,9 +73,20 @@ class ProjectGenerator:
                 if item.endswith(".kt"):
                     src_file = os.path.join(runtime_src, item)
                     dest_file = os.path.join(runtime_dest, item)
-                    shutil.copy2(src_file, dest_file)
-        else:
-            print(f"DEBUG: Runtime source not found at {runtime_src}")
+                    # Use our smart write logic for runtime files too
+                    with open(src_file, "r") as f:
+                        self._write_file(dest_file, f.read())
+
+    def _write_file(self, path: str, content: str):
+        """Write file only if content has changed to preserve timestamps."""
+        if os.path.exists(path):
+            with open(path, "r") as f:
+                if f.read() == content:
+                    return # No change, skip write
+        
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as f:
+            f.write(content)
 
     def _generate_file(self, template_name: str, output_name: str):
         # Use Jinja2 to render the template
@@ -96,10 +106,9 @@ class ProjectGenerator:
                     elif ":" in lib:
                         deps_str.append(f'    {config_name}("{lib}")')
                     else:
+                        # Fallback for short names if we ever use them
                         deps_str.append(f'    {config_name}(platform("{lib}"))')
             context["dependencies_block"] = "\n".join(deps_str)
 
         output = template.render(**context)
-        
-        with open(os.path.join(self.project_path, output_name), "w") as f:
-            f.write(output)
+        self._write_file(os.path.join(self.project_path, output_name), output)
