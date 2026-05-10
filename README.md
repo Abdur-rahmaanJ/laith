@@ -34,6 +34,11 @@ laith compile
 
 # The "Inner Loop": Build, Install, Run, and Stream Logs
 laith run
+
+# You can just do:
+# $ laith init myapp
+# $ cd my app
+# $ laith run
 ```
 
 ## Project Configuration (`laith.toml`)
@@ -131,3 +136,34 @@ Laith represents a fundamental shift in how Python is used for mobile developmen
 ### vs. Flutter
 *   **Ecosystem Alignment**: Laith embraces the **Android Native Stack**, mapping Python directly to Kotlin Coroutines, WorkManager, and Jetpack Compose.
 *   **Direct NDK Access**: While Flutter requires complex MethodChannels, Laith allows you to mark Python functions with `@native` to generate optimized C++ and automated JNI bridges instantly.
+
+## Laith Feature Matrix
+
+| Category | Feature | Phase | Status | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| **Syntax** | Basic Constructs | 1 | ✅ Done | Support for `def`, `async def`, `return`, `if`, and assignments. |
+| **Syntax** | Type Inference | 1 | ✅ Done | Static analysis of `int`, `str`, `bool`, and `void` types. |
+| **Syntax** | Async/Await | 3 | ✅ Done | Direct mapping of Python `async` to Kotlin Coroutines. |
+| **Syntax** | For-Loops | 6 | ✅ Done | Basic `for i in range(n)` support in IR and backends. |
+| **OO Model** | Custom Classes | 6 | ✅ Done | Support for `class` definitions and instance attributes. |
+| **OO Model** | Constructors | 6 | ✅ Done | Support for `__init__` mapping to Kotlin initialization logic. |
+| **OO Model** | Instance Methods | 6 | ✅ Done | Methods with `self` binding and attribute access. |
+| **State** | Reactive State | 2 | ✅ Done | `state(value)` for UI-synchronized global or instance variables. |
+| **State** | State Observation | 6 | ✅ Done | Automatic `collectAsState()` for class-member reactive state. |
+| **IPC** | Channels | 4 | ✅ Done | `Channel()` for asynchronous event-driven communication. |
+| **UI** | Compose DSL | 2 | ✅ Done | High-fidelity mapping to `Column`, `Row`, `Box`, `Text`, `Button`. |
+| **UI** | Theming | 7 | ✅ Done | Automated generation of Material3 themes and adaptive icons. |
+| **Hardware** | SDK Bridging | 7 | ✅ Done | Dynamic access to any Android API (e.g., `Build.MODEL`). |
+| **Hardware** | API Discovery | 7 | ✅ Done | Real-time bytecode analysis of `android.jar` for symbol lookup. |
+| **Hardware** | Smart Permissions | 7 | ✅ Done | Automatic `uses-permission` injection via code inference. |
+| **Native** | @native C++ | 5 | ✅ Done | Direct compilation of Python functions to optimized C++ via NDK. |
+| **Native** | Zero-JNI | 5 | ✅ Done | Automated JNI bridge and name mangling generation. |
+| **Background** | Periodic Tasks | 3 | ✅ Done | `@periodic_task` mapping to Android WorkManager. |
+| **Background** | Services | 3 | ✅ Done | `@foreground_service` for long-running Android components. |
+| **Optimizers** | Constant Folding | 4 | ✅ Done | Compile-time evaluation of constant expressions. |
+| **Optimizers** | Dead Code (DCE) | 4 | ✅ Done | Automatic removal of unused instructions and variables. |
+| **Tooling** | CLI Orchestrator | 1 | ✅ Done | Unified `init`, `build`, `compile`, and `run` commands. |
+| **Tooling** | "Inner Loop" | 7 | ✅ Done | ABI-targeted `installDebug` with real-time logcat streaming. |
+| **Syntax** | Exceptions | 8 | 🛠️ Planned | `try` / `except` blocks for native error handling. |
+| **Optimizers** | Advanced Opts | 9 | 🛠️ Planned | Inlining, escape analysis, and loop unrolling. |
+| **Tooling** | LSP / IDE | 10 | 🛠️ Planned | VSCode extension for type hints and autocomplete. |
