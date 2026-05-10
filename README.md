@@ -102,44 +102,18 @@ To maintain high performance and static predictability, the following Python fea
 ## Complete Application Demo
 
 ```python
-# global_app.py
-from laith import (
-    state, Channel, native, periodic_task, 
-    foreground_service, start_service, Column, Text, Button, Row
-)
+from laith import Column, Text, Button, vibrate
 
-# 1. Reactive Global State
-counter = state(0)
-msg_channel = Channel()
-
-# 2. Native C++ Layer (Zero-JNI)
-@native
-def compute_heavy_task(x: int) -> int:
-    return x * x + 42
-
-# 3. Background Task (WorkManager)
-@periodic_task(interval="15m", requires_wifi=True)
-async def sync_data():
-    current = counter.value
-    counter.set(current + 1)
-    msg_channel.publish("Data synced from background")
-
-# 4. Native Android UI (Jetpack Compose)
 def main_ui():
-    # Collect updates from background channel
-    msg_channel.collect(lambda data: print(data))
-
     Column(
-        Text("Laith Native Platform"),
-        Text(f"Global Counter: {counter.value}"),
-
-        Button("Compute Native", on_click=lambda: print(compute_heavy_task(10))),
-
-        Row(
-            Button("Increment", on_click=lambda: counter.set(counter.value + 1)),
-            Button("Reset", on_click=lambda: counter.set(0))
-        )
+        Text("Laith Vibe Lab"),
+        Text("Press buttons to test haptic feedback"),
+        
+        Button("Quick Vibe (100ms)", on_click=lambda: vibrate(100)),
+        Button("Medium Vibe (500ms)", on_click=lambda: vibrate(500)),
+        Button("Long Vibe (1s)", on_click=lambda: vibrate(1000))
     )
+
 ```
 
 ## Why Laith? (Comparison)
