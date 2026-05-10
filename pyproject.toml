@@ -30,6 +30,10 @@ dev = [
 [project.scripts]
 laith = "laith.cli.main:main"
 
+[tool.setuptools.packages.find]
+include = ["laith*"]
+exclude = ["exp*", "examples*", "tests*"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]

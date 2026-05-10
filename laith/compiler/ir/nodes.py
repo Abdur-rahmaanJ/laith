@@ -52,6 +52,8 @@ class IRClass:
 @dataclass(kw_only=True)
 class IRInstruction:
     result: Optional[IRValue] = None
+    source_line: Optional[int] = None
+    source_col: Optional[int] = None
     
     def get_operands(self) -> List[IRValue]:
         return []

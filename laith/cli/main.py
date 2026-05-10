@@ -199,7 +199,7 @@ def run(ctx, device: str, project: str):
         adb.start_activity(target_device, package_name)
         
         # 5. Telemetry
-        adb.stream_logs(target_device, package_name)
+        adb.stream_logs(target_device, package_name, project_path=project)
     except Exception as e:
         console.print(f"[bold red]Run failed:[/bold red] {str(e)}")
         sys.exit(1)
@@ -299,6 +299,20 @@ def build(file: str, output: str, project: str):
         with open(final_output, "w") as f:
             f.write(kotlin_code)
             
+        # 6.5 Save Source Map (Phase 8)
+        if project:
+            map_dir = os.path.join(project, ".laith", "maps")
+            os.makedirs(map_dir, exist_ok=True)
+            map_name = os.path.basename(file) + ".map"
+            map_path = os.path.join(map_dir, map_name)
+            
+            # Simple line-to-line mapping
+            source_map = emitter.get_source_map()
+            with open(map_path, "w") as f:
+                for out_l, in_l in source_map:
+                    f.write(f"{out_l}:{in_l}\n")
+            console.print(f"Source map saved to [bold green]{map_path}[/bold green]")
+
         if native_code:
             if project:
                 native_dir = os.path.join(project, "app", "src", "main", "cpp")

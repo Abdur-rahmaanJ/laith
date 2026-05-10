@@ -1,5 +1,6 @@
 import re
 import os
+from typing import Dict, List, Optional, Set, Tuple
 from laith.compiler.ir.nodes import (
     IRModule, IRFunction, IRBlock, IRInstruction, IRValue,
     Constant, BinaryOp, Call, Return, UICall,
@@ -20,6 +21,7 @@ class KotlinEmitter:
         self.in_ui_lambda = False
         self.current_self_id = None
         self.current_class_name = None
+        self.source_map: List[Tuple[int, int]] = [] # (output_line, input_line)
         self.imports = {
             "laith.runtime.*",
             "kotlinx.coroutines.*",
@@ -32,7 +34,13 @@ class KotlinEmitter:
         }
 
     def _indent(self): return "    " * self.indent_level
-    def _write(self, text: str): self.output.append(f"{self._indent()}{text}")
+    
+    def _write(self, text: str, inst: Optional[IRInstruction] = None):
+        line_content = f"{self._indent()}{text}"
+        self.output.append(line_content)
+        if inst and inst.source_line:
+             # Store mapping: current output line index (1-based) -> input source line
+             self.source_map.append((len(self.output), inst.source_line))
 
     def emit(self, module: IRModule) -> str:
         self.native_func_names = {f.name for f in module.functions if any(d["name"] == "native" for d in f.decorators)}
@@ -40,6 +48,7 @@ class KotlinEmitter:
             for method in cls.methods:
                 if any(d["name"] == "native" for d in method.decorators): self.native_func_names.add(method.name)
 
+        # Handle global initializations
         global_init_func = next((f for f in module.functions if f.name == "global_init"), None)
         if global_init_func:
             for block in global_init_func.blocks:
@@ -62,7 +71,16 @@ class KotlinEmitter:
 
         header = [f"import {imp}" for imp in sorted(list(self.imports))]
         header.append("")
+        
+        # Offset source map by header length
+        header_len = len(header)
+        final_map = [(out_l + header_len, in_l) for out_l, in_l in self.source_map]
+        self.final_source_map = final_map
+
         return "\n".join(header + self.output)
+
+    def get_source_map(self) -> List[Tuple[int, int]]:
+        return self.final_source_map
 
     def visit_class(self, cls: IRClass):
         self.current_class_name = cls.name
@@ -123,13 +141,13 @@ class KotlinEmitter:
             val = inst.value
             if isinstance(val, str): val = f'"{val}"'
             elif isinstance(val, bool): val = str(val).lower()
-            self._write(f"val {self._v(inst.result)} = {val}")
+            self._write(f"val {self._v(inst.result)} = {val}", inst)
         elif isinstance(inst, ClassInit):
             args = ", ".join(self._v(a) for a in inst.args)
-            self._write(f"val {self._v(inst.result)} = {inst.class_name}().apply {{ __init__({args}) }}")
+            self._write(f"val {self._v(inst.result)} = {inst.class_name}().apply {{ __init__({args}) }}", inst)
         elif isinstance(inst, StateInit):
             val = self._v(inst.initial_value)
-            self._write(f"val {self._v(inst.result)} = MutableStateFlow<Any?>({val})")
+            self._write(f"val {self._v(inst.result)} = MutableStateFlow<Any?>({val})", inst)
             self.imports.add("kotlinx.coroutines.flow.MutableStateFlow")
 
     def _v(self, val: IRValue) -> str:
@@ -145,53 +163,50 @@ class KotlinEmitter:
             val = inst.value
             if isinstance(val, str): val = f'"{val}"'
             elif isinstance(val, bool): val = str(val).lower()
-            self._write(f"val {self._v(inst.result)} = {val}")
+            self._write(f"val {self._v(inst.result)} = {val}", inst)
         elif isinstance(inst, BinaryOp):
             op_map = {"add": "+", "sub": "-", "mul": "*", "div": "/", "lt": "<", "gt": ">"}
             op = op_map.get(inst.op, inst.op)
             l_val, r_val = self._v(inst.left), self._v(inst.right)
             if inst.op == "add": 
-                self._write(f"val {self._v(inst.result)} = \"${{({l_val} ?: \"\")}} ${{({r_val} ?: \"\")}} \".trim()")
+                self._write(f"val {self._v(inst.result)} = \"${{({l_val} ?: \"\")}} ${{({r_val} ?: \"\")}} \".trim()", inst)
             else:
                 l_expr = f"({l_val} as? Number)?.toInt() ?: 0"
                 r_expr = f"({r_val} as? Number)?.toInt() ?: 0"
-                self._write(f"val {self._v(inst.result)} = {l_expr} {op} {r_expr}")
+                self._write(f"val {self._v(inst.result)} = {l_expr} {op} {r_expr}", inst)
         elif isinstance(inst, Call):
             args_str = ", ".join(f"{self._v(arg)}" for arg in inst.args)
-            if inst.func_name == "vibrate":
-                 self._write(f"PythonRuntime.vibrate(context, ({args_str} as? Number)?.toLong() ?: 500L)")
-                 return
-            
-            if inst.result: self._write(f"val {self._v(inst.result)} = {inst.func_name}({args_str})")
-            else: self._write(f"{inst.func_name}({args_str})")
+            if inst.result: self._write(f"val {self._v(inst.result)} = {inst.func_name}({args_str})", inst)
+            else: self._write(f"{inst.func_name}({args_str})", inst)
         elif isinstance(inst, MethodCall):
             args_str = ", ".join(f"{self._v(arg)}" for arg in inst.args)
             obj_name = "this" if (self.current_self_id and inst.obj.id == self.current_self_id) else self._v(inst.obj)
             if inst.method_name == "set":
                 v = self._v(inst.args[0])
-                self._write(f"({obj_name} as? MutableStateFlow<Any?>)?.value = {v}")
-                self._write(f"({obj_name} as? MutableState<Any?>)?.value = {v}")
+                self._write(f"({obj_name} as? MutableStateFlow<Any?>)?.value = {v}", inst)
+                self._write(f"({obj_name} as? MutableState<Any?>)?.value = {v}", inst)
                 return
-            if inst.result: self._write(f"val {self._v(inst.result)} = {obj_name}.{inst.method_name}({args_str})")
-            else: self._write(f"{obj_name}.{method_name}({args_str})")
+            if inst.result: self._write(f"val {self._v(inst.result)} = {obj_name}.{inst.method_name}({args_str})", inst)
+            else: self._write(f"{obj_name}.{method_name}({args_str})", inst)
         elif isinstance(inst, ClassInit):
             args = ", ".join(self._v(a) for a in inst.args)
             fqn = inst.result.type.name
             if "." in fqn:
                 ctx = "context" if self.current_func_is_ui else "null"
-                self._write(f"val {self._v(inst.result)} = {fqn}({', '.join(filter(None, [ctx, args]))})")
-            else: self._write(f"val {self._v(inst.result)} = {inst.class_name}().apply {{ __init__({args}) }}")
+                self._write(f"val {self._v(inst.result)} = {fqn}({', '.join(filter(None, [ctx, args]))})", inst)
+            else:
+                self._write(f"val {self._v(inst.result)} = {inst.class_name}().apply {{ __init__({args}) }}", inst)
         elif isinstance(inst, AttributeGet):
             obj_name = "this" if (self.current_self_id and inst.obj.id == self.current_self_id) else self._v(inst.obj)
             if "." in inst.obj.type.name: obj_name = inst.obj.type.name
-            self._write(f"val {self._v(inst.result)} = {obj_name}.{inst.attr_name}")
+            self._write(f"val {self._v(inst.result)} = {obj_name}.{inst.attr_name}", inst)
         elif isinstance(inst, AttributeSet):
             obj_name = "this" if (self.current_self_id and inst.obj.id == self.current_self_id) else self._v(inst.obj)
-            self._write(f"{obj_name}.{inst.attr_name} = {self._v(inst.value)}")
+            self._write(f"{obj_name}.{inst.attr_name} = {self._v(inst.value)}", inst)
         elif isinstance(inst, StateInit):
             val = self._v(inst.initial_value)
-            if self.current_func_is_ui: self._write(f"val {self._v(inst.result)} = remember {{ mutableStateOf<Any?>({val}) }}")
-            else: self._write(f"val {self._v(inst.result)} = MutableStateFlow<Any?>({val})")
+            if self.current_func_is_ui: self._write(f"val {self._v(inst.result)} = remember {{ mutableStateOf<Any?>({val}) }}", inst)
+            else: self._write(f"val {self._v(inst.result)} = MutableStateFlow<Any?>({val})", inst)
         elif isinstance(inst, UICall):
             args_list = []
             if inst.func_name == "Button" and inst.args: label = self._v(inst.args[0])
@@ -201,32 +216,32 @@ class KotlinEmitter:
                     kotlin_k = k.replace("_", "") if k != "on_click" else "onClick"
                     args_list.append(f"{kotlin_k} = {self._v(v)}")
             call_str = f"{inst.func_name}({', '.join(args_list)})"
+            has_body = inst.body is not None
             has_click = any(isinstance(v, IRBlock) for v in inst.keywords.values())
             if inst.func_name == "Button" and has_click:
                 kw_name = next(k for k, v in inst.keywords.items() if isinstance(v, IRBlock))
                 block = inst.keywords[kw_name]
-                self._write(f"Button(onClick = {{")
+                self._write(f"Button(onClick = {{", inst)
                 self.indent_level += 1; prev = self.in_ui_lambda; self.in_ui_lambda = True
                 self.visit_block(block); self.in_ui_lambda = prev; self.indent_level -= 1
                 self._write("}) {")
                 self.indent_level += 1; self._write(f"Text({self._v(inst.args[0])})")
                 self.indent_level -= 1; self._write("}")
-            elif inst.body:
-                self._write(f"{inst.func_name}({', '.join(args_list)}) {{")
+            elif has_body:
+                self._write(f"{inst.func_name}({', '.join(args_list)}) {{", inst)
                 self.indent_level += 1; self.visit_block(inst.body); self.indent_level -= 1
                 self._write("}")
-            else: self._write(call_str)
+            else: self._write(call_str, inst)
         elif isinstance(inst, StateGet):
             obj_name = self._v(inst.state_var)
-            # If in UI and NOT in a lambda, we MUST collect for reactivity
             if self.current_func_is_ui and not self.in_ui_lambda:
-                self._write(f"val {self._v(inst.result)} = ({obj_name} as? StateFlow<Any?>)?.collectAsState()?.value ?: ({obj_name} as? MutableState<Any?>)?.value")
+                self._write(f"val {self._v(inst.result)} = ({obj_name} as? StateFlow<Any?>)?.collectAsState()?.value ?: ({obj_name} as? MutableState<Any?>)?.value", inst)
             else:
-                self._write(f"val {self._v(inst.result)} = ({obj_name} as? MutableStateFlow<Any?>)?.value ?: ({obj_name} as? MutableState<Any?>)?.value")
+                self._write(f"val {self._v(inst.result)} = ({obj_name} as? MutableStateFlow<Any?>)?.value ?: ({obj_name} as? MutableState<Any?>)?.value", inst)
         elif isinstance(inst, StateSet):
             obj_name = self._v(inst.state_var)
-            self._write(f"({obj_name} as? MutableStateFlow<Any?>)?.value = {self._v(inst.new_value)}")
-            self._write(f"({obj_name} as? MutableState<Any?>)?.value = {self._v(inst.new_value)}")
+            self._write(f"({obj_name} as? MutableStateFlow<Any?>)?.value = {self._v(inst.new_value)}", inst)
+            self._write(f"({obj_name} as? MutableState<Any?>)?.value = {self._v(inst.new_value)}", inst)
         elif isinstance(inst, Return):
-            if inst.value: self._write(f"return {self._v(inst.value)}")
-            else: self._write("return")
+            if inst.value: self._write(f"return {self._v(inst.value)}", inst)
+            else: self._write("return", inst)

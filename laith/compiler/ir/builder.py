@@ -71,6 +71,12 @@ class IRBuilder:
     def generic_visit(self, node: ast.AST):
         raise NotImplementedError(f"No visitor for {node.__class__.__name__}")
 
+    def _add_inst(self, inst: IRInstruction, node: Optional[ast.AST] = None):
+        if node:
+            inst.source_line = getattr(node, 'lineno', None)
+            inst.source_col = getattr(node, 'col_offset', None)
+        self.current_block.add_instruction(inst)
+
     def visit_Import(self, node: ast.Import): pass
     def visit_ImportFrom(self, node: ast.ImportFrom): pass
 
@@ -80,7 +86,7 @@ class IRBuilder:
         for part in node.values[1:]:
             part_val = self.visit_expr(part)
             new_res = IRValue(id=self._next_id(), type=STR_TYPE)
-            self.current_block.add_instruction(BinaryOp(result=new_res, op="add", left=res, right=part_val))
+            self._add_inst(BinaryOp(result=new_res, op="add", left=res, right=part_val), node)
             res = new_res
         return res
 
@@ -150,11 +156,11 @@ class IRBuilder:
             self._set_value(target.id, val, is_state=is_state)
         elif isinstance(target, ast.Attribute):
             obj = self.visit_expr(target.value)
-            self.current_block.add_instruction(AttributeSet(obj=obj, attr_name=target.attr, value=val))
+            self._add_inst(AttributeSet(obj=obj, attr_name=target.attr, value=val), node)
 
     def visit_Return(self, node: ast.Return):
         val = self.visit_expr(node.value) if node.value else None
-        self.current_block.add_instruction(Return(value=val))
+        self._add_inst(Return(value=val), node)
 
     def visit_Expr(self, node: ast.Expr): self.visit_expr(node.value)
 
@@ -162,12 +168,12 @@ class IRBuilder:
         obj = self.visit_expr(node.value)
         if self._is_state(obj) and node.attr == "value":
             res = IRValue(id=self._next_id(), type=ANY_TYPE)
-            self.current_block.add_instruction(StateGet(result=res, state_var=obj))
+            self._add_inst(StateGet(result=res, state_var=obj), node)
             return res
         res = IRValue(id=self._next_id(), type=ANY_TYPE)
         # If accessing a known state property of LabState
         if obj.type.name in ["LabState", "AppState"]: res.type = STATE_TYPE
-        self.current_block.add_instruction(AttributeGet(result=res, obj=obj, attr_name=node.attr))
+        self._add_inst(AttributeGet(result=res, obj=obj, attr_name=node.attr), node)
         return res
 
     def visit_Constant(self, node: ast.Constant) -> IRValue:
@@ -176,7 +182,7 @@ class IRBuilder:
         elif isinstance(node.value, str): t = STR_TYPE
         elif isinstance(node.value, bool): t = BOOL_TYPE
         res = IRValue(id=self._next_id(), type=t)
-        self.current_block.add_instruction(Constant(result=res, value=node.value))
+        self._add_inst(Constant(result=res, value=node.value), node)
         return res
 
     def visit_Name(self, node: ast.Name) -> IRValue:
@@ -191,7 +197,7 @@ class IRBuilder:
         l, r = self.visit_expr(node.left), self.visit_expr(node.right)
         op = {ast.Add: "add", ast.Sub: "sub", ast.Mult: "mul", ast.Div: "div"}[type(node.op)]
         res = IRValue(id=self._next_id(), type=l.type)
-        self.current_block.add_instruction(BinaryOp(result=res, op=op, left=l, right=r))
+        self._add_inst(BinaryOp(result=res, op=op, left=l, right=r), node)
         return res
 
     def visit_Call(self, node: ast.Call) -> IRValue:
@@ -200,13 +206,13 @@ class IRBuilder:
             if name == "state":
                 v = self.visit_expr(node.args[0])
                 res = IRValue(id=self._next_id(), type=STATE_TYPE)
-                self.current_block.add_instruction(StateInit(result=res, initial_value=v))
+                self._add_inst(StateInit(result=res, initial_value=v), node)
                 return res
             sym = self.global_scope.lookup(name)
             if sym and sym.kind == SymbolKind.CLASS and sym.type.name != "Channel":
                 args = [self.visit_expr(a) for a in node.args]
                 res = IRValue(id=self._next_id(), type=sym.type)
-                self.current_block.add_instruction(ClassInit(result=res, class_name=name, args=args))
+                self._add_inst(ClassInit(result=res, class_name=name, args=args), node)
                 return res
             ui = {"Column", "Row", "Box", "Text", "Button"}
             if name in ui:
@@ -230,21 +236,21 @@ class IRBuilder:
                     body = IRBlock(label=f"{name}_body"); self.current_block = body
                     for k in kids: self.visit_expr(k)
                     self.current_block = pb
-                self.current_block.add_instruction(UICall(func_name=name, args=args, body=body, keywords=kws))
+                self._add_inst(UICall(func_name=name, args=args, body=body, keywords=kws), node)
                 return IRValue(id="void", type=VOID_TYPE)
             args = [self.visit_expr(a) for a in node.args]
             res = IRValue(id=self._next_id(), type=ANY_TYPE)
-            self.current_block.add_instruction(Call(result=res, func_name=name, args=args))
+            self._add_inst(Call(result=res, func_name=name, args=args), node)
             return res
         if isinstance(node.func, ast.Attribute):
             obj = self.visit_expr(node.func.value)
             if self._is_state(obj) and node.func.attr == "set":
                 v = self.visit_expr(node.args[0])
-                self.current_block.add_instruction(StateSet(state_var=obj, new_value=v))
+                self._add_inst(StateSet(state_var=obj, new_value=v), node)
                 return IRValue(id="void", type=VOID_TYPE)
             args = [self.visit_expr(a) for a in node.args]
             res = IRValue(id=self._next_id(), type=ANY_TYPE)
-            self.current_block.add_instruction(MethodCall(result=res, obj=obj, method_name=node.func.attr, args=args))
+            self._add_inst(MethodCall(result=res, obj=obj, method_name=node.func.attr, args=args), node)
             return res
         raise NotImplementedError(f"No visitor for {node.__class__.__name__}")
 
