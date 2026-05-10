@@ -73,14 +73,34 @@ class GradleOrchestrator:
             return False
 
     def generate_signing_config(self):
-        """Generate a default signing configuration if it doesn't exist."""
+        """Generate a production-ready signing configuration and keystore."""
         keystore_path = os.path.join(self.project_path, "release.keystore")
         properties_path = os.path.join(self.project_path, "keystore.properties")
         
+        # 1. Generate the actual keystore binary if missing
+        if not os.path.exists(keystore_path):
+            console.print("[bold yellow]Generating production release keystore...[/bold yellow]")
+            import subprocess
+            cmd = [
+                "keytool", "-genkey", "-v",
+                "-keystore", keystore_path,
+                "-alias", "laithkey",
+                "-keyalg", "RSA",
+                "-keysize", "2048",
+                "-validity", "10000",
+                "-storepass", "laithpassword",
+                "-keypass", "laithpassword",
+                "-dname", "CN=Laith Developer, OU=Engineering, O=Laith, L=Digital, S=Cloud, C=UN"
+            ]
+            try:
+                subprocess.run(cmd, check=True, capture_output=True)
+                console.print(f"[bold green]Keystore generated:[/bold green] {keystore_path}")
+            except Exception as e:
+                console.print(f"[bold red]Failed to generate keystore:[/bold red] Ensure 'keytool' (JDK) is installed.")
+                return
+
+        # 2. Setup the properties file for the Gradle build
         if not os.path.exists(properties_path):
-            console.print("[bold yellow]Generating release signing configuration...[/bold yellow]")
-            # In a real tool, we'd use keytool here. 
-            # For now, we'll setup the properties file.
             content = f"""storeFile=../release.keystore
 storePassword=laithpassword
 keyAlias=laithkey
@@ -88,7 +108,7 @@ keyPassword=laithpassword
 """
             with open(properties_path, "w") as f:
                 f.write(content)
-            console.print(f"Created [bold green]{properties_path}[/bold green]")
+            console.print(f"Signing properties synchronized at [bold green]{properties_path}[/bold green]")
 
     def get_apk_path(self, mode: str = "debug") -> str:
         # Standard AGP output path

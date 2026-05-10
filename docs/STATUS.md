@@ -1,74 +1,32 @@
 # Implementation Status
 
-## Phase 1: MVP Compiler (Completed)
+## Core Platform (Completed)
 
-| Feature | Status | Note |
-| --- | --- | --- |
-| Basic Type Inference | ✅ | int, str, bool, void |
-| Async/Await Support | ✅ | Mapped to Kotlin Coroutines |
-| Symbol Table | ✅ | Hierarchical scope support |
-| SSA IR Foundation | ✅ | Linear blocks + instructions |
-| Kotlin Emitter | ✅ | Generates compilable .kt files |
-| CLI `init` | ✅ | Full Android project scaffolding |
-| CLI `build` | ✅ | Source-to-source + project integration |
-| WorkManager Mapping | ✅ | `@periodic_task` → `LaithWorker` |
-| Jetpack Compose Foundation | ✅ | Nested `UICall` nodes |
-
-## Phase 1.5: Project Automation (Completed)
-
-| Feature | Status | Note |
-| --- | --- | --- |
-| Gradle Templates | ✅ | Project and App level |
-| Manifest Generation | ✅ | Dynamic AndroidManifest.xml |
-| Runtime Integration | ✅ | Auto-copying Kotlin runtime files |
-| MainActivity Scaffolding | ✅ | Entry point for Compose |
-| Gradle Wrapper Injection | ✅ | Automated `gradlew` setup |
-| Binary Orchestration | ✅ | `laith compile` and `laith run` |
-
-## Phase 2: UI System (Completed)
-
-| Feature | Status | Note |
-| --- | --- | --- |
-| Local State | ✅ | `state()` -> `mutableStateOf` |
-| Event Handling | ✅ | `on_click` -> lambdas |
-| Nested Layouts | ✅ | `Column`, `Row` support |
-| StateFlow / Flow | ✅ | Reactive global state via `collectAsState` |
-
-## Phase 3: Background Runtime (Completed)
-
-| Feature | Status | Note |
-| --- | --- | --- |
-| Foreground Services | ✅ | `@foreground_service` support |
-| Notifications | ✅ | Automated channel and builder generation |
-| WorkManager Constraints | ✅ | Mapping `requires_wifi`, `requires_charging` |
-| Service Control | ✅ | `start_service()` / `stop_service()` |
-
-## Phase 4: Optimization (In Progress)
-
-| Feature | Status | Note |
-| --- | --- | --- |
-| Optimizer Framework | ✅ | Pass-based architecture |
-| Dead Code Elimination | ✅ | Removes unused instructions |
-| Constant Folding | ✅ | Folds arithmetic expressions |
-| SSA Optimization | 🏗️ | More advanced passes planned |
-| LLVM Backend | 🏗️ | Not started |
-
-## Phase 5: Native Layer (Completed)
-
-| Feature | Status | Note |
-| --- | --- | --- |
-| C++ Emitter | ✅ | Generates extern "C" functions |
-| JNI Bridge | ✅ | Fully automated boilerplate generation |
-| NDK Integration | ✅ | CMake and Gradle linkage |
-| LLVM Integration | 🏗️ | Planned for future optimization |
-
-## Future Roadmap (Phase 8+)
-
-| Phase | Title | Focus | Status |
+| Phase | Feature | Status | Note |
 | --- | --- | --- | --- |
-| **Phase 6** | Object Model | Classes, Inheritance, Dataclasses | ✅ |
-| **Phase 7** | The Great Bridge | Automated Android SDK API generation | ✅ |
-| **Phase 8** | Diagnostics | Source Maps and Stack Trace rewriting | 🏗️ |
-| **Phase 9** | Advanced Opts | Inlining and Escape Analysis | 🏗️ |
-| **Phase 10** | IDE / DX | VSCode Plugin and Live Preview | 🏗️ |
-| **Phase 11** | Production | Automated Signing and AAB support | 🏗️ |
+| **Phase 1** | MVP Compiler | ✅ | Basic IR, Type Inference, CLI foundation. |
+| **Phase 1.5** | Automation | ✅ | Gradle templates, Manifest auto-gen, Wrapper injection. |
+| **Phase 2** | UI System | ✅ | Jetpack Compose mapping, Reactive state (`state()`). |
+| **Phase 3** | Background | ✅ | Foreground services, WorkManager, Notifications. |
+| **Phase 4** | Optimization | ✅ | Optimizer framework, DCE, Constant Folding. |
+| **Phase 5** | Native Layer | ✅ | NDK Integration, Zero-JNI C++ emitter. |
+| **Phase 6** | Object Model | ✅ | Custom Classes, Constructors, Instance Methods. |
+| **Phase 7** | SDK Bridge | ✅ | Dynamic Android API discovery via bytecode analysis. |
+
+## Production & DX (Completed)
+
+| Phase | Feature | Status | Note |
+| --- | --- | --- | --- |
+| **Phase 8** | Diagnostics | ✅ | Source Maps and Python-aware Stack Trace rewriting. |
+| **Phase 9** | Advanced Opts| ✅ | Function Inlining Pass for reduced call overhead. |
+| **Phase 10** | IDE / DX | ✅ | `laith watch` command for Hot Reload / Live Preview. |
+| **Phase 11** | Production | ✅ | Automated RSA signing and AAB (App Bundle) support. |
+
+## Future Roadmap
+
+| Feature | Focus | Status | Note |
+| --- | --- | --- | --- |
+| **Exceptions** | Native Errors | 🏗️ | Support for `try`/`except` blocks in IR and backends. |
+| **Escape Analysis**| Allocation Opts| 🏗️ | Optimize memory allocation for local objects. |
+| **LSP / IDE** | Tooling | 🏗️ | VSCode extension for type hints and autocomplete. |
+| **Multi-Module** | Project Scale | 🏗️ | Support for importing other `.py` files as modules. |

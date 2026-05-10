@@ -1,40 +1,35 @@
 # Laith Architecture Overview
 
-Laith is a statically compiled Python platform for Android. It transforms a typed subset of Python into native Android components without an embedded CPython interpreter.
+Laith is a statically compiled Python platform for Android. It transforms a typed subset of Python into high-performance native Android components without an embedded CPython interpreter.
 
 ## The Compilation Pipeline
 
 1.  **Frontend (`laith/compiler/frontend`)**: 
-    *   Parses Python source using the native `ast` module.
-    *   Performs semantic analysis to resolve symbols and types.
-    *   Identifies architectural annotations (decorators) like `@periodic_task` and `@native`.
+    *   **Semantic Analysis**: Resolves symbols and types across module and class scopes.
+    *   **Dynamic SDK Bridge**: Performs real-time bytecode analysis of `android.jar` to enable access to any Android API (e.g., `android.os.Build`).
+    *   **Permission Inference**: Automatically detects required Android permissions based on API usage.
 
 2.  **Intermediate Representation (`laith/compiler/ir`)**:
-    *   Converts the AST into a custom SSA-based (Static Single Assignment) IR.
-    *   Supports reactive primitives (`state`, `Channel`) and service lifecycles.
-    *   Maintains type information across all operations.
+    *   **SSA Architecture**: Uses a Static Single Assignment IR for reliable optimization.
+    *   **Object Model**: Native support for `IRClass`, `IRMethod`, and `IRField`.
+    *   **Source Mapping**: IR nodes preserve Python source line/column metadata for diagnostics.
 
 3.  **Optimizer (`laith/compiler/optimizer`)**:
-    *   Performs multi-pass optimizations on the IR.
-    *   Includes Dead Code Elimination (DCE) and Constant Folding.
-    *   Ensures the generated code is lean and efficient.
+    *   **DCE & Constant Folding**: Aggressive removal of unused code and compile-time evaluation.
+    *   **Inlining**: Automatically replaces small function calls with direct instructions to reduce invocation overhead.
 
 4.  **Backend (`laith/compiler/backend`)**:
-    *   **Kotlin Emitter**: Translates IR into thread-safe, coroutine-native Kotlin code with Jetpack Compose support.
-    *   **Native Emitter**: Generates optimized C++ code for functions marked with `@native`.
-    *   **JNI Bridge**: Automatically generates the C++ boilerplate for Kotlin-to-Native communication.
+    *   **Kotlin Emitter**: Generates coroutine-native, thread-safe Kotlin code with Jetpack Compose support.
+    *   **Native Emitter**: Compiles functions marked with `@native` directly to optimized C++ via the NDK.
+    *   **JNI Bridge**: Standardizes `extern "C"` linkage for zero-overhead communication between layers.
 
-## Runtime System (`laith/runtime`)
+## Runtime & Tooling
 
-The runtime is a thin Kotlin layer that provides:
-*   **Coroutine Scope**: Managed lifecycle for Python tasks.
-*   **Task Abstractions**: Base classes for `LaithWorker` and `LaithService`.
-*   **Global State**: Bridge for `MutableStateFlow` to Compose `collectAsState()`.
-*   **Compose Integration**: Bridges Python UI definitions to the Jetpack Compose runtime.
+### The "Inner Loop" Developer Experience
+*   **`laith run`**: Orchestrates ABI-specific incremental builds, installation via ADB, and log streaming.
+*   **Source Rewriting**: Automatically maps Android stack traces back to Python line numbers in real-time.
+*   **`laith watch`**: High-performance file watcher for instant "Live Preview" on physical hardware.
 
-## Tooling (`laith/cli`)
-
-The `laith` CLI provides the developer interface:
-*   `init`: Scaffolds new projects with Gradle and NDK support.
-*   `build`: Compiles Python source to optimized Kotlin, C++, and JNI.
-*   `compile`: Orchestrates the Android build process (Gradle + CMake).
+### Production Readiness
+*   **AAB Support**: Generates Google Play-compatible Android App Bundles.
+*   **Automated Signing**: Orchestrates RSA keystore generation and secure property synchronization for release binaries.

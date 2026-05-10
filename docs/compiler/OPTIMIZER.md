@@ -2,30 +2,29 @@
 
 The Laith optimizer (in `laith/compiler/optimizer`) performs static analysis and transformation of the Intermediate Representation to improve performance and reduce binary size.
 
-## Architecture
+## Pass-Based Architecture
 
-The optimizer uses a pass-based architecture managed by the `Optimizer` class:
-
-- **Pass Framework**: The base `Pass` class defines a standard interface for IR transformations.
-- **Iterative Execution**: Optimization passes run iteratively until no further changes are detected (fixed-point iteration).
+The optimizer uses an iterative, multi-pass architecture:
+1.  **Analysis**: Passes scan the IR to identify optimization opportunities.
+2.  **Transformation**: Passes modify the IR nodes (e.g., remapping values, deleting instructions).
+3.  **Fixed-Point**: Passes run iteratively until no further instructions can be optimized.
 
 ## Implemented Passes
 
-### Dead Code Elimination (DCE)
+### 1. Inlining (`InlinerPass`)
+Reduces invocation overhead by replacing small function calls with their direct instruction sequence.
+- **Heuristic**: Targets leaf functions under a specific instruction threshold.
+- **Remapping**: Automatically remaps local SSA values to unique IDs to prevent collisions in the caller block.
 
-The `DCEPass` identifies and removes instructions that are "dead":
-- An instruction is dead if it has no side effects and its result is never used within the entire module.
-- It preserves instructions with side effects like `UICall`, `Call`, `ServiceStart`, and `ChannelSend`.
+### 2. Dead Code Elimination (`DCEPass`)
+Aggressively removes instructions whose results are never used and which have no observable side effects.
+- **Safety**: Always preserves `UICall`, `ServiceStart`, and `ChannelSend` nodes.
 
-### Constant Folding
+### 3. Constant Folding (`ConstantFoldingPass`)
+Evaluates deterministic expressions at compile-time.
+- **Scope**: Supports binary arithmetic on `int`, `str`, and `bool` literals.
+- **Impact**: Enables deeper DCE by turning complex expressions into single constants.
 
-The `ConstantFoldingPass` evaluates arithmetic expressions at compile-time:
-- Identifies `BinaryOp` nodes where both operands are constants.
-- Replaces the operation with a single `Constant` node.
-- This reduces runtime computation and enables further DCE by eliminating temporary variables.
-
-## Future Optimizations
-
-- **Function Inlining**: Reducing call overhead for small functions.
-- **Escape Analysis**: Identifying variables that don't leave a specific scope to optimize memory allocation.
-- **Async Lowering**: Optimizing coroutine state machines for even lower latency.
+## Advanced Strategies (Future)
+- **Escape Analysis**: Promoting heap allocations to the stack for short-lived objects.
+- **Loop Unrolling**: Expanding small constant-range loops to eliminate branch penalties.

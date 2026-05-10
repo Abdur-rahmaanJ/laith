@@ -86,13 +86,15 @@ This project uses AI. If you use Ai and bring sensible improvement, then great. 
 Laith currently supports a statically-analyzed subset of Python 3.10+:
 
 *   **Syntax**: `def`, `async def`, `return`, assignments, and hierarchical function calls.
-*   **Types**: `int`, `str`, `bool`, and `void` (explicit annotations or inferred).
+*   **Object-Oriented Logic**: Support for `class` definitions, `__init__` constructors, and instance methods with `self` attribute access.
+*   **Automated SDK Bridge**: Direct access to **any** Android API (e.g., `android.os.Build`, `android.os.Vibrator`) via real-time bytecode analysis.
+*   **Smart Permissions**: Automatic `AndroidManifest.xml` generation; the compiler infers required permissions based on your Python code.
 *   **Async/Await**: Full mapping to Kotlin Coroutines for non-blocking I/O and UI.
+*   **Diagnostics**: Source Maps for Python-aware stack traces; Android errors are mapped back to original Python line numbers.
 *   **State Management**: `state(initial_value)` for reactive UI/background synchronization.
-*   **IPC**: `Channel()` for event-based communication between layers.
 *   **UI Components**: Jetpack Compose DSL (`Column`, `Row`, `Box`, `Text`, `Button`).
-*   **Native**: `@native` decorator for high-performance C++ implementation.
-*   **Background**: `@periodic_task` (WorkManager) and `@foreground_service` (Android Services).
+*   **Optimized Native Performance**: `@native` C++ compilation and automatic function inlining.
+*   **Background Tasks**: `@periodic_task` (WorkManager) and `@foreground_service` (Android Services).
 
 ## Not Supported (Yet)
 
@@ -101,8 +103,7 @@ To maintain high performance and static predictability, the following Python fea
 *   **Dynamic Execution**: `eval()`, `exec()`, and dynamic `__import__()`.
 *   **Runtime Metaprogramming**: Metaclasses, monkey patching, and dynamic attribute injection.
 *   **Reflection**: Unrestricted `getattr`/`setattr` on arbitrary objects.
-*   **Classes & Inheritance**: Custom class definitions are planned for Phase 6.
-*   **Exception Handling**: `try`/`except` blocks are planned for Phase 7.
+*   **Exception Handling**: `try`/`except` blocks are planned for Phase 12.
 
 ## Complete Application Demo
 

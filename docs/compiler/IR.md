@@ -2,22 +2,33 @@
 
 Laith uses a custom SSA-based IR to bridge the gap between Python's high-level AST and low-level target code.
 
+## Core Concepts
+
+- **Static Single Assignment (SSA)**: Every value is assigned exactly once. This simplifies data-flow analysis for the optimizer.
+- **Diagnostics**: Every `IRInstruction` carries `source_line` and `source_col` metadata linking it back to the original Python source.
+
 ## IR Nodes
 
 Located in `laith/compiler/ir/nodes.py`:
 
-- **IRFunction**: Represents a compiled function, including its return type, parameters, and basic blocks.
-- **IRBlock**: A linear sequence of instructions ending in a terminator.
-- **IRValue**: Represents an SSA variable with a specific ID and Type.
-- **IRInstruction**: 
-    - `Constant`: Literals (int, str, bool).
-    - `BinaryOp`: Standard arithmetic and logical operations.
-    - `Call`: Standard function calls.
-    - `UICall`: Specialized node for Jetpack Compose, supporting a nested `IRBlock` for trailing lambdas.
-    - `StateInit/Get/Set`: Instructions for managing reactive `state()`.
-    - `ChannelInit/Send/Collect`: IPC primitives for `Channel()` communication.
-    - `ServiceStart/Stop`: Control nodes for starting and stopping background services.
+### High-Level Structures
+- **IRModule**: The top-level container for functions and classes.
+- **IRClass**: Native representation of a Python class, containing `IRField` and `IRMethod` definitions.
+- **IRFunction**: A global function or background task.
+
+### Blocks & Values
+- **IRBlock**: A linear sequence of instructions ending in a terminator (`Jump`, `Branch`, `Return`).
+- **IRValue**: Represents an SSA variable with a unique ID and a `Type`.
+
+### Instruction Set
+- **Object Model**: `ClassInit`, `AttributeGet`, `AttributeSet`, `MethodCall`.
+- **UI Logic**: `UICall` (Specialized for Jetpack Compose hierarchies).
+- **Reactive State**: `StateInit`, `StateGet`, `StateSet`.
+- **Arithmetic**: `BinaryOp` (add, sub, mul, div, etc.).
+- **Constants**: `Constant` (int, str, bool).
+- **IPC**: `ChannelInit`, `ChannelSend`, `ChannelCollect`.
+- **Lifecycles**: `ServiceStart`, `ServiceStop`.
 
 ## IR Construction
 
-The `IRBuilder` (in `laith/compiler/ir/builder.py`) transforms the AST. It uses the `Scope` information from the Frontend to ensure correct type propagation and symbol resolution.
+The `IRBuilder` (in `laith/compiler/ir/builder.py`) recursively visits the AST, using the `SemanticAnalyzer`'s scope and type information to generate valid SSA form.
