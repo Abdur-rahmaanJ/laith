@@ -1,6 +1,6 @@
 import re
 import os
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple, Union
 from laith.compiler.ir.nodes import (
     IRModule, IRFunction, IRBlock, IRInstruction, IRValue,
     Constant, BinaryOp, Call, Return, UICall,
@@ -8,7 +8,7 @@ from laith.compiler.ir.nodes import (
     ChannelInit, ChannelSend, ChannelCollect,
     ServiceStart, ServiceStop,
     IRClass, IRField, IRMethod, ClassInit, AttributeGet, AttributeSet, MethodCall,
-    Jump, Branch
+    Jump, Branch, IRIf, TryExcept, Raise
 )
 from laith.compiler.backend.kotlin.mapping import map_type_to_kotlin
 
@@ -21,7 +21,8 @@ class KotlinEmitter:
         self.in_ui_lambda = False
         self.current_self_id = None
         self.current_class_name = None
-        self.source_map: List[Tuple[int, int]] = [] # (output_line, input_line)
+        self.source_map: List[Tuple[int, int]] = []
+        self.ui_functions: Set[str] = set()
         self.imports = {
             "laith.runtime.*",
             "kotlinx.coroutines.*",
@@ -39,7 +40,6 @@ class KotlinEmitter:
         line_content = f"{self._indent()}{text}"
         self.output.append(line_content)
         if inst and inst.source_line:
-             # Store mapping: current output line index (1-based) -> input source line
              self.source_map.append((len(self.output), inst.source_line))
 
     def emit(self, module: IRModule) -> str:
@@ -48,7 +48,9 @@ class KotlinEmitter:
             for method in cls.methods:
                 if any(d["name"] == "native" for d in method.decorators): self.native_func_names.add(method.name)
 
-        # Handle global initializations
+        # Infer UI functions
+        self._infer_ui_functions(module)
+
         global_init_func = next((f for f in module.functions if f.name == "global_init"), None)
         if global_init_func:
             for block in global_init_func.blocks:
@@ -71,16 +73,45 @@ class KotlinEmitter:
 
         header = [f"import {imp}" for imp in sorted(list(self.imports))]
         header.append("")
-        
-        # Offset source map by header length
         header_len = len(header)
         final_map = [(out_l + header_len, in_l) for out_l, in_l in self.source_map]
         self.final_source_map = final_map
-
         return "\n".join(header + self.output)
 
-    def get_source_map(self) -> List[Tuple[int, int]]:
-        return self.final_source_map
+    def _infer_ui_functions(self, module: IRModule):
+        changed = True
+        while changed:
+            changed = False
+            for func in module.functions:
+                if func.name not in self.ui_functions:
+                    if self._is_ui_element(func):
+                        self.ui_functions.add(func.name)
+                        changed = True
+            for cls in module.classes:
+                for method in cls.methods:
+                    name = f"{cls.name}.{method.name}"
+                    if name not in self.ui_functions:
+                        if self._is_ui_element(method):
+                            self.ui_functions.add(name)
+                            changed = True
+
+    def _is_ui_element(self, func: Union[IRFunction, IRMethod]) -> bool:
+        def check_block(block: IRBlock) -> bool:
+            for inst in block.instructions:
+                if isinstance(inst, UICall): return True
+                if isinstance(inst, Call) and inst.func_name in self.ui_functions: return True
+                if isinstance(inst, IRIf):
+                    if check_block(inst.then_block): return True
+                    if inst.else_block and check_block(inst.else_block): return True
+                if isinstance(inst, TryExcept):
+                    if check_block(inst.body): return True
+                    if check_block(inst.handler): return True
+            return False
+        for b in func.blocks:
+            if check_block(b): return True
+        return False
+
+    def get_source_map(self) -> List[Tuple[int, int]]: return self.final_source_map
 
     def visit_class(self, cls: IRClass):
         self.current_class_name = cls.name
@@ -93,11 +124,9 @@ class KotlinEmitter:
         self.current_class_name = None
 
     def visit_method(self, method: IRMethod):
-        has_ui = False
-        for block in method.blocks:
-            if any(isinstance(i, UICall) for i in block.instructions): has_ui = True; break
-        self.current_func_is_ui = has_ui
-        if has_ui: self._write("@Composable")
+        name = f"{self.current_class_name}.{method.name}"
+        self.current_func_is_ui = name in self.ui_functions
+        if self.current_func_is_ui: self._write("@Composable")
         suspend = "suspend " if method.is_async else ""
         args_to_emit = method.args[1:] if len(method.args) > 0 else method.args
         args_str = ", ".join(f"{self._v(arg)}: {map_type_to_kotlin(arg.type)}" for arg in args_to_emit)
@@ -110,21 +139,17 @@ class KotlinEmitter:
         for block in method.blocks: self.visit_block(block)
         self.indent_level -= 1
         self._write("}")
-        self.current_func_is_ui = False
-        self.current_self_id = None
+        self.current_func_is_ui = False; self.current_self_id = None
 
     def visit_function(self, func: IRFunction):
-        has_ui = False
-        for block in func.blocks:
-            if any(isinstance(i, UICall) for i in block.instructions): has_ui = True; break
-        self.current_func_is_ui = has_ui
-        if has_ui: self._write("@Composable")
+        self.current_func_is_ui = func.name in self.ui_functions
+        if self.current_func_is_ui: self._write("@Composable")
         suspend = "suspend " if func.is_async else ""
         args_str = ", ".join(f"{self._v(arg)}: {map_type_to_kotlin(arg.type)}" for arg in func.args)
         ret_type = map_type_to_kotlin(func.return_type)
         self._write(f"{suspend}fun {func.name}({args_str}): {ret_type} {{")
         self.indent_level += 1
-        if has_ui: self._write("val context = LocalContext.current")
+        if self.current_func_is_ui: self._write("val context = LocalContext.current")
         for block in func.blocks: self.visit_block(block)
         self.indent_level -= 1
         self._write("}")
@@ -165,21 +190,20 @@ class KotlinEmitter:
             elif isinstance(val, bool): val = str(val).lower()
             self._write(f"val {self._v(inst.result)} = {val}", inst)
         elif isinstance(inst, BinaryOp):
-            op_map = {"add": "+", "sub": "-", "mul": "*", "div": "/", "lt": "<", "gt": ">"}
+            op_map = {"add": "+", "sub": "-", "mul": "*", "div": "/", "lt": "<", "gt": ">", "eq": "==", "ne": "!=", "le": "<=", "ge": ">="}
             op = op_map.get(inst.op, inst.op)
             l_val, r_val = self._v(inst.left), self._v(inst.right)
-            if inst.op == "add": 
-                self._write(f"val {self._v(inst.result)} = \"${{({l_val} ?: \"\")}} ${{({r_val} ?: \"\")}} \".trim()", inst)
+            if inst.op == "add": self._write(f"val {self._v(inst.result)} = \"${{({l_val} ?: \"\")}} ${{({r_val} ?: \"\")}} \".trim()", inst)
             else:
                 l_expr = f"({l_val} as? Number)?.toInt() ?: 0"
                 r_expr = f"({r_val} as? Number)?.toInt() ?: 0"
-                self._write(f"val {self._v(inst.result)} = {l_expr} {op} {r_expr}", inst)
+                if inst.op in ["eq", "ne"]: self._write(f"val {self._v(inst.result)} = ({l_val} == {r_val})", inst)
+                else: self._write(f"val {self._v(inst.result)} = {l_expr} {op} {r_expr}", inst)
         elif isinstance(inst, Call):
             args_str = ", ".join(f"{self._v(arg)}" for arg in inst.args)
             if inst.func_name == "vibrate":
                  self._write(f"PythonRuntime.vibrate(context, ({args_str} as? Number)?.toLong() ?: 500L)", inst)
                  return
-            
             if inst.result: self._write(f"val {self._v(inst.result)} = {inst.func_name}({args_str})", inst)
             else: self._write(f"{inst.func_name}({args_str})", inst)
         elif isinstance(inst, MethodCall):
@@ -198,8 +222,7 @@ class KotlinEmitter:
             if "." in fqn:
                 ctx = "context" if self.current_func_is_ui else "null"
                 self._write(f"val {self._v(inst.result)} = {fqn}({', '.join(filter(None, [ctx, args]))})", inst)
-            else:
-                self._write(f"val {self._v(inst.result)} = {inst.class_name}().apply {{ __init__({args}) }}", inst)
+            else: self._write(f"val {self._v(inst.result)} = {inst.class_name}().apply {{ __init__({args}) }}", inst)
         elif isinstance(inst, AttributeGet):
             obj_name = "this" if (self.current_self_id and inst.obj.id == self.current_self_id) else self._v(inst.obj)
             if "." in inst.obj.type.name: obj_name = inst.obj.type.name
@@ -220,7 +243,6 @@ class KotlinEmitter:
                     kotlin_k = k.replace("_", "") if k != "on_click" else "onClick"
                     args_list.append(f"{kotlin_k} = {self._v(v)}")
             call_str = f"{inst.func_name}({', '.join(args_list)})"
-            has_body = inst.body is not None
             has_click = any(isinstance(v, IRBlock) for v in inst.keywords.values())
             if inst.func_name == "Button" and has_click:
                 kw_name = next(k for k, v in inst.keywords.items() if isinstance(v, IRBlock))
@@ -231,7 +253,7 @@ class KotlinEmitter:
                 self._write("}) {")
                 self.indent_level += 1; self._write(f"Text({self._v(inst.args[0])})")
                 self.indent_level -= 1; self._write("}")
-            elif has_body:
+            elif inst.body:
                 self._write(f"{inst.func_name}({', '.join(args_list)}) {{", inst)
                 self.indent_level += 1; self.visit_block(inst.body); self.indent_level -= 1
                 self._write("}")
@@ -251,15 +273,18 @@ class KotlinEmitter:
             else: self._write("return", inst)
         elif isinstance(inst, TryExcept):
             self._write("try {", inst)
-            self.indent_level += 1
-            self.visit_block(inst.body)
-            self.indent_level -= 1
+            self.indent_level += 1; self.visit_block(inst.body); self.indent_level -= 1
             exc_var = inst.exc_name or "e"
             self._write(f"}} catch ({exc_var}: Exception) {{")
-            self.indent_level += 1
-            self.visit_block(inst.handler)
-            self.indent_level -= 1
+            self.indent_level += 1; self.visit_block(inst.handler); self.indent_level -= 1
+            self._write("}")
+        elif isinstance(inst, IRIf):
+            cond = self._v(inst.condition)
+            self._write(f"if ({cond} as? Boolean ?: false) {{", inst)
+            self.indent_level += 1; self.visit_block(inst.then_block); self.indent_level -= 1
+            if inst.else_block:
+                self._write("} else {")
+                self.indent_level += 1; self.visit_block(inst.else_block); self.indent_level -= 1
             self._write("}")
         elif isinstance(inst, Raise):
-            # In Phase 12 we'll wrap the raised value in an Exception if it's not one
             self._write(f"throw Exception(${self._v(inst.value)}.toString())", inst)

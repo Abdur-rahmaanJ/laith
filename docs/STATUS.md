@@ -30,3 +30,9 @@
 | **Escape Analysis**| Allocation Opts| 🏗️ | Optimize memory allocation for local objects. |
 | **LSP / IDE** | Tooling | 🏗️ | VSCode extension for type hints and autocomplete. |
 | **Multi-Module** | Project Scale | 🏗️ | Support for importing other `.py` files as modules. |
+
+## Feature Status (Phase 12 Complete)
+
+| Feature | Status | Note |
+| --- | --- | --- |
+| **Exception Handling** | ✅ | Full `try`/`except` support in Kotlin and C++ backends. |

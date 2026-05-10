@@ -261,6 +261,21 @@ class TryExcept(IRInstruction):
         return f"try {{\n{self.body}\n}} except {self.exc_name or ''} {{\n{self.handler}\n}}"
 
 @dataclass(kw_only=True)
+class IRIf(IRInstruction):
+    condition: IRValue
+    then_block: IRBlock
+    else_block: Optional[IRBlock] = None
+    
+    def get_operands(self) -> List[IRValue]:
+        return [self.condition]
+
+    def has_side_effects(self) -> bool:
+        return True
+
+    def __repr__(self) -> str:
+        return f"if {self.condition.id} {{\n{self.then_block}\n}} else {{\n{self.else_block}\n}}"
+
+@dataclass(kw_only=True)
 class Raise(IRInstruction):
     value: IRValue
     

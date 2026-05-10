@@ -8,7 +8,7 @@ from laith.compiler.ir.nodes import (
     ChannelInit, ChannelSend, ChannelCollect,
     ServiceStart, ServiceStop,
     IRClass, IRField, IRMethod, ClassInit, AttributeGet, AttributeSet, MethodCall,
-    Jump, Branch
+    Jump, Branch, IRIf, TryExcept, Raise
 )
 
 # Custom type for state to help emitter
@@ -158,6 +158,25 @@ class IRBuilder:
             obj = self.visit_expr(target.value)
             self._add_inst(AttributeSet(obj=obj, attr_name=target.attr, value=val), node)
 
+    def visit_If(self, node: ast.If):
+        cond = self.visit_expr(node.test)
+        
+        # Build then block
+        then_block = IRBlock(label=f"if_then_{self._next_id()}")
+        pb = self.current_block
+        self.current_block = then_block
+        for s in node.body: self.visit(s)
+        
+        # Build else block
+        else_block = None
+        if node.orelse:
+             else_block = IRBlock(label=f"if_else_{self._next_id()}")
+             self.current_block = else_block
+             for s in node.orelse: self.visit(s)
+        
+        self.current_block = pb
+        self._add_inst(IRIf(condition=cond, then_block=then_block, else_block=else_block), node)
+
     def visit_Return(self, node: ast.Return):
         val = self.visit_expr(node.value) if node.value else None
         self._add_inst(Return(value=val), node)
@@ -228,6 +247,16 @@ class IRBuilder:
         self._add_inst(BinaryOp(result=res, op=op, left=l, right=r), node)
         return res
 
+    def visit_Compare(self, node: ast.Compare) -> IRValue:
+        l = self.visit_expr(node.left)
+        # We only support single comparisons for now (e.g. a == b)
+        r = self.visit_expr(node.comparators[0])
+        op_map = {ast.Eq: "eq", ast.NotEq: "ne", ast.Lt: "lt", ast.LtE: "le", ast.Gt: "gt", ast.GtE: "ge"}
+        op = op_map[type(node.ops[0])]
+        res = IRValue(id=self._next_id(), type=BOOL_TYPE)
+        self._add_inst(BinaryOp(result=res, op=op, left=l, right=r), node)
+        return res
+
     def visit_Call(self, node: ast.Call) -> IRValue:
         if isinstance(node.func, ast.Name):
             name = node.func.id
@@ -246,7 +275,7 @@ class IRBuilder:
             if name in ui:
                 kids = []; imms = []
                 for a in node.args:
-                    if isinstance(a, ast.Call) and isinstance(a.func, ast.Name) and a.func.id in ui: kids.append(a)
+                    if isinstance(a, ast.Call): kids.append(a)
                     else: imms.append(a)
                 kws = {}
                 for kw in node.keywords:
