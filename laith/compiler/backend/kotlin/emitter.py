@@ -4,7 +4,8 @@ from laith.compiler.ir.nodes import (
     Constant, BinaryOp, Call, Return, UICall,
     StateInit, StateGet, StateSet,
     ChannelInit, ChannelSend, ChannelCollect,
-    ServiceStart, ServiceStop
+    ServiceStart, ServiceStop,
+    IRClass, IRField, IRMethod, ClassInit, AttributeGet, AttributeSet, MethodCall
 )
 from laith.compiler.backend.kotlin.mapping import map_type_to_kotlin
 
@@ -33,6 +34,10 @@ class KotlinEmitter:
     def emit(self, module: IRModule) -> str:
         # Collect native function names for call routing
         self.native_func_names = {f.name for f in module.functions if any(d["name"] == "native" for d in f.decorators)}
+        for cls in module.classes:
+            for method in cls.methods:
+                if any(d["name"] == "native" for d in method.decorators):
+                    self.native_func_names.add(method.name)
 
         # Collect imports from decorators
         for func in module.functions:
@@ -55,6 +60,10 @@ class KotlinEmitter:
                     self.visit_top_level_instruction(inst)
             self.output.append("")
 
+        for cls in module.classes:
+            self.visit_class(cls)
+            self.output.append("")
+
         for func in module.functions:
             if func.name == "global_init":
                 continue
@@ -68,6 +77,39 @@ class KotlinEmitter:
         header.append("")
         
         return "\n".join(header + self.output)
+
+    def visit_class(self, cls: IRClass):
+        self._write(f"class {cls.name} {{")
+        self.indent_level += 1
+        
+        for field in cls.fields:
+            self._write(f"var {field.name}: {map_type_to_kotlin(field.type)}? = null")
+
+        for method in cls.methods:
+            self.visit_method(method)
+
+        self.indent_level -= 1
+        self._write("}")
+
+    def visit_method(self, method: IRMethod):
+        suspend = "suspend " if method.is_async else ""
+        # Filter out 'self' for Kotlin method signature if it's the first arg
+        args_to_emit = method.args[1:] if len(method.args) > 0 else method.args
+        args_str = ", ".join(f"{self._v(arg)}: {map_type_to_kotlin(arg.type)}" for arg in args_to_emit)
+        ret_type = map_type_to_kotlin(method.return_type)
+        
+        self._write(f"{suspend}fun {method.name}({args_str}): {ret_type} {{")
+        self.indent_level += 1
+        
+        # If it's a method, bind 'self' IRValue to 'this'
+        if len(method.args) > 0:
+            self._write(f"val {self._v(method.args[0])} = this")
+
+        for block in method.blocks:
+            self.visit_block(block)
+            
+        self.indent_level -= 1
+        self._write("}")
 
     def _emit_native_lib(self, module: IRModule):
         native_functions = [f for f in module.functions if any(d["name"] == "native" for d in f.decorators)]
@@ -165,6 +207,9 @@ class KotlinEmitter:
             if isinstance(val, str): val = f'"{val}"'
             elif isinstance(val, bool): val = str(val).lower()
             self._write(f"val {self._v(inst.result)} = {val}")
+        elif isinstance(inst, ClassInit):
+            args_str = ", ".join(f"{self._v(arg)}" for arg in inst.args)
+            self._write(f"val {self._v(inst.result)} = {inst.class_name}().apply {{ __init__({args_str}) }}")
 
     def _v(self, val: IRValue) -> str:
         return f"v_{val.id}"
@@ -291,9 +336,6 @@ class KotlinEmitter:
             args_str = ", ".join(f"{self._v(arg)}" for arg in inst.args)
             
             # Check if calling a native function
-            # Note: We should ideally have access to the full module or a symbol table here
-            # For now, we assume if we're in KotlinEmitter and it's @native, we call via NativeLib
-            # A more robust way would be to check a set of native_func_names
             prefix = ""
             if hasattr(self, 'native_func_names') and inst.func_name in self.native_func_names:
                 prefix = "NativeLib."
@@ -302,6 +344,23 @@ class KotlinEmitter:
                 self._write(f"val {self._v(inst.result)} = {prefix}{inst.func_name}({args_str})")
             else:
                 self._write(f"{prefix}{inst.func_name}({args_str})")
+
+        elif isinstance(inst, MethodCall):
+            args_str = ", ".join(f"{self._v(arg)}" for arg in inst.args)
+            if inst.result:
+                self._write(f"val {self._v(inst.result)} = {self._v(inst.obj)}.{inst.method_name}({args_str})")
+            else:
+                self._write(f"{self._v(inst.obj)}.{inst.method_name}({args_str})")
+
+        elif isinstance(inst, ClassInit):
+            args_str = ", ".join(f"{self._v(arg)}" for arg in inst.args)
+            self._write(f"val {self._v(inst.result)} = {inst.class_name}().apply {{ __init__({args_str}) }}")
+
+        elif isinstance(inst, AttributeGet):
+            self._write(f"val {self._v(inst.result)} = {self._v(inst.obj)}.{inst.attr_name}")
+
+        elif isinstance(inst, AttributeSet):
+            self._write(f"{self._v(inst.obj)}.{inst.attr_name} = {self._v(inst.value)}")
 
         elif isinstance(inst, UICall):
             args_list = [f"{self._v(arg)}" for arg in inst.args]

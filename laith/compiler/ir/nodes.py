@@ -11,6 +11,44 @@ class IRValue:
     def __repr__(self) -> str:
         return f"%{self.id}: {self.type}"
 
+@dataclass
+class IRField:
+    name: str
+    type: Type
+
+@dataclass
+class IRMethod:
+    name: str
+    return_type: Type
+    args: List[IRValue]
+    is_async: bool = False
+    blocks: List[IRBlock] = field(default_factory=list)
+    decorators: List[Dict[str, Any]] = field(default_factory=list)
+    is_constructor: bool = False
+
+    def __repr__(self) -> str:
+        decs = ""
+        for d in self.decorators:
+            args = ", ".join(f"{k}={v}" for k, v in d["args"].items())
+            decs += f"@{d['name']}({args})\n"
+        async_prefix = "async " if self.is_async else ""
+        args_str = ", ".join(repr(a) for a in self.args)
+        header = f"{decs}{async_prefix}method @{self.name}({args_str}) -> {self.return_type}:"
+        body = "\n".join(repr(b) for b in self.blocks)
+        return f"{header}\n{body}"
+
+@dataclass
+class IRClass:
+    name: str
+    fields: List[IRField] = field(default_factory=list)
+    methods: List[IRMethod] = field(default_factory=list)
+    decorators: List[Dict[str, Any]] = field(default_factory=list)
+
+    def __repr__(self) -> str:
+        fields_str = "\n  ".join(f"field {f.name}: {f.type}" for f in self.fields)
+        methods_str = "\n\n".join(repr(m) for m in self.methods)
+        return f"class {self.name} {{\n  {fields_str}\n\n{methods_str}\n}}"
+
 @dataclass(kw_only=True)
 class IRInstruction:
     result: Optional[IRValue] = None
@@ -172,6 +210,61 @@ class ServiceStop(IRInstruction):
         return f"service_stop({self.func_name})"
 
 @dataclass(kw_only=True)
+class ClassInit(IRInstruction):
+    class_name: str
+    args: List[IRValue]
+    
+    def get_operands(self) -> List[IRValue]:
+        return self.args
+
+    def __repr__(self) -> str:
+        args_str = ", ".join(v.id for v in self.args)
+        return f"{self.result} = new {self.class_name}({args_str})"
+
+@dataclass(kw_only=True)
+class AttributeGet(IRInstruction):
+    obj: IRValue
+    attr_name: str
+    
+    def get_operands(self) -> List[IRValue]:
+        return [self.obj]
+
+    def __repr__(self) -> str:
+        return f"{self.result} = {self.obj.id}.{self.attr_name}"
+
+@dataclass(kw_only=True)
+class AttributeSet(IRInstruction):
+    obj: IRValue
+    attr_name: str
+    value: IRValue
+    
+    def get_operands(self) -> List[IRValue]:
+        return [self.obj, self.value]
+
+    def has_side_effects(self) -> bool:
+        return True
+
+    def __repr__(self) -> str:
+        return f"{self.obj.id}.{self.attr_name} = {self.value.id}"
+
+@dataclass(kw_only=True)
+class MethodCall(IRInstruction):
+    obj: IRValue
+    method_name: str
+    args: List[IRValue]
+    
+    def get_operands(self) -> List[IRValue]:
+        return [self.obj] + self.args
+
+    def has_side_effects(self) -> bool:
+        return True
+
+    def __repr__(self) -> str:
+        args_str = ", ".join(v.id for v in self.args)
+        res = f"{self.result} = " if self.result else ""
+        return f"{res}method_call {self.obj.id}.{self.method_name}({args_str})"
+
+@dataclass(kw_only=True)
 class Return(IRInstruction):
     value: Optional[IRValue] = None
     
@@ -219,6 +312,8 @@ class IRFunction:
 @dataclass
 class IRModule:
     functions: List[IRFunction] = field(default_factory=list)
+    classes: List[IRClass] = field(default_factory=list)
     
     def __repr__(self) -> str:
-        return "\n\n".join(repr(f) for f in self.functions)
+        items = [repr(c) for c in self.classes] + [repr(f) for f in self.functions]
+        return "\n\n".join(items)

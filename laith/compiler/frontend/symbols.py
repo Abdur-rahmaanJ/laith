@@ -32,9 +32,10 @@ class Symbol:
     metadata: Dict[str, Any] = field(default_factory=dict)
 
 class Scope:
-    def __init__(self, parent: Optional[Scope] = None, name: str = "global"):
+    def __init__(self, parent: Optional[Scope] = None, name: str = "global", kind: str = "module"):
         self.parent = parent
         self.name = name
+        self.kind = kind
         self.symbols: Dict[str, Symbol] = {}
         self.children: List[Scope] = []
 
@@ -48,8 +49,8 @@ class Scope:
             return self.parent.lookup(name)
         return None
 
-    def create_child(self, name: str) -> Scope:
-        child = Scope(parent=self, name=name)
+    def create_child(self, name: str, kind: str = "function") -> Scope:
+        child = Scope(parent=self, name=name, kind=kind)
         self.children.append(child)
         return child
 
