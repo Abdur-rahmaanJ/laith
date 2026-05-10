@@ -15,6 +15,7 @@ class ProjectGenerator:
             "app/src/main/kotlin/laith/runtime",
             "app/src/main/res/values",
             "app/src/main/res/mipmap-anydpi-v26",
+            "app/src/main/cpp",
             "gradle/wrapper"
         ]
         for d in dirs:
@@ -25,6 +26,9 @@ class ProjectGenerator:
         self._generate_file("app_build.gradle.kts.j2", "app/build.gradle.kts")
         self._generate_file("AndroidManifest.xml.j2", "app/src/main/AndroidManifest.xml")
         self._generate_file("MainActivity.kt.j2", f"app/src/main/kotlin/{package_path}/MainActivity.kt")
+        
+        if self.config.get("has_native"):
+            self._generate_file("CMakeLists.txt.j2", "app/src/main/cpp/CMakeLists.txt")
         
         with open(os.path.join(self.project_path, "settings.gradle.kts"), "w") as f:
             f.write(f'rootProject.name = "{self.config["app_name"]}"\ninclude(":app")\n')

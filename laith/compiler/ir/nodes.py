@@ -15,6 +15,12 @@ class IRValue:
 class IRInstruction:
     result: Optional[IRValue] = None
     
+    def get_operands(self) -> List[IRValue]:
+        return []
+
+    def has_side_effects(self) -> bool:
+        return False
+
     def __repr__(self) -> str:
         res = f"{self.result} = " if self.result else ""
         return f"{res}{self.__class__.__name__.lower()}"
@@ -32,6 +38,9 @@ class BinaryOp(IRInstruction):
     left: IRValue
     right: IRValue
     
+    def get_operands(self) -> List[IRValue]:
+        return [self.left, self.right]
+
     def __repr__(self) -> str:
         return f"{self.result} = {self.op} {self.left.id} {self.right.id}"
 
@@ -40,6 +49,12 @@ class Call(IRInstruction):
     func_name: str
     args: List[IRValue]
     
+    def get_operands(self) -> List[IRValue]:
+        return self.args
+
+    def has_side_effects(self) -> bool:
+        return True # Calls are assumed to have side effects for now
+
     def __repr__(self) -> str:
         args_str = ", ".join(v.id for v in self.args)
         res = f"{self.result} = " if self.result else ""
@@ -52,6 +67,16 @@ class UICall(IRInstruction):
     body: Optional[IRBlock] = None
     keywords: Dict[str, Union[IRValue, IRBlock]] = field(default_factory=dict)
     
+    def get_operands(self) -> List[IRValue]:
+        ops = self.args.copy()
+        for v in self.keywords.values():
+            if isinstance(v, IRValue):
+                ops.append(v)
+        return ops
+
+    def has_side_effects(self) -> bool:
+        return True
+
     def __repr__(self) -> str:
         args_str = ", ".join(v.id for v in self.args)
         kws_str = ", ".join(f"{k}={v}" for k, v in self.keywords.items())
@@ -63,6 +88,9 @@ class UICall(IRInstruction):
 class StateInit(IRInstruction):
     initial_value: IRValue
     
+    def get_operands(self) -> List[IRValue]:
+        return [self.initial_value]
+
     def __repr__(self) -> str:
         return f"{self.result} = state_init({self.initial_value.id})"
 
@@ -70,6 +98,9 @@ class StateInit(IRInstruction):
 class StateGet(IRInstruction):
     state_var: IRValue
     
+    def get_operands(self) -> List[IRValue]:
+        return [self.state_var]
+
     def __repr__(self) -> str:
         return f"{self.result} = state_get({self.state_var.id})"
 
@@ -78,13 +109,78 @@ class StateSet(IRInstruction):
     state_var: IRValue
     new_value: IRValue
     
+    def get_operands(self) -> List[IRValue]:
+        return [self.state_var, self.new_value]
+
+    def has_side_effects(self) -> bool:
+        return True
+
     def __repr__(self) -> str:
         return f"state_set({self.state_var.id}, {self.new_value.id})"
+
+@dataclass(kw_only=True)
+class ChannelInit(IRInstruction):
+    def __repr__(self) -> str:
+        return f"{self.result} = channel_init()"
+
+@dataclass(kw_only=True)
+class ChannelSend(IRInstruction):
+    channel: IRValue
+    value: IRValue
+    
+    def get_operands(self) -> List[IRValue]:
+        return [self.channel, self.value]
+
+    def has_side_effects(self) -> bool:
+        return True
+
+    def __repr__(self) -> str:
+        return f"channel_send({self.channel.id}, {self.value.id})"
+
+@dataclass(kw_only=True)
+class ChannelCollect(IRInstruction):
+    channel: IRValue
+    body: IRBlock
+    
+    def get_operands(self) -> List[IRValue]:
+        return [self.channel]
+
+    def has_side_effects(self) -> bool:
+        return True
+
+    def __repr__(self) -> str:
+        return f"channel_collect({self.channel.id}) {{\n  {self.body}\n}}"
+
+@dataclass(kw_only=True)
+class ServiceStart(IRInstruction):
+    func_name: str
+    
+    def has_side_effects(self) -> bool:
+        return True
+
+    def __repr__(self) -> str:
+        return f"service_start({self.func_name})"
+
+@dataclass(kw_only=True)
+class ServiceStop(IRInstruction):
+    func_name: str
+    
+    def has_side_effects(self) -> bool:
+        return True
+
+    def __repr__(self) -> str:
+        return f"service_stop({self.func_name})"
 
 @dataclass(kw_only=True)
 class Return(IRInstruction):
     value: Optional[IRValue] = None
     
+    def get_operands(self) -> List[IRValue]:
+        return [self.value] if self.value else []
+
+    def has_side_effects(self) -> bool:
+        return True
+
     def __repr__(self) -> str:
         return f"return {self.value.id if self.value else ''}"
 

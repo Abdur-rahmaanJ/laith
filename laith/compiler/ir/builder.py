@@ -2,10 +2,13 @@ import ast
 from typing import Dict, List, Optional, Union
 from laith.compiler.frontend.symbols import Scope, Symbol, SymbolKind, Type, ANY_TYPE, VOID_TYPE
 from laith.compiler.ir.nodes import (
-    IRModule, IRFunction, IRBlock, IRValue, IRInstruction,
+    IRModule, IRFunction, IRBlock, IRInstruction, IRValue,
     Constant, BinaryOp, Call, Return, UICall,
-    StateInit, StateGet, StateSet
+    StateInit, StateGet, StateSet,
+    ChannelInit, ChannelSend, ChannelCollect,
+    ServiceStart, ServiceStop
 )
+
 
 class IRBuilder:
     def __init__(self, global_scope: Scope):
@@ -16,6 +19,7 @@ class IRBuilder:
         self.value_counter = 0
         self.scope_values: List[Dict[str, IRValue]] = [{}]
         self.state_vars: List[set] = [set()] # Set of IDs that are state variables
+        self.channels: List[set] = [set()] # Set of IDs that are channels
 
     def _next_id(self) -> str:
         id_ = str(self.value_counter)
@@ -25,19 +29,29 @@ class IRBuilder:
     def _push_scope(self):
         self.scope_values.append({})
         self.state_vars.append(set())
+        self.channels.append(set())
 
     def _pop_scope(self):
         self.scope_values.pop()
         self.state_vars.pop()
+        self.channels.pop()
 
-    def _set_value(self, name: str, value: IRValue, is_state: bool = False):
+    def _set_value(self, name: str, value: IRValue, is_state: bool = False, is_channel: bool = False):
         self.scope_values[-1][name] = value
         if is_state:
             self.state_vars[-1].add(value.id)
+        if is_channel:
+            self.channels[-1].add(value.id)
 
     def _is_state(self, val: IRValue) -> bool:
         for s in reversed(self.state_vars):
             if val.id in s:
+                return True
+        return False
+
+    def _is_channel(self, val: IRValue) -> bool:
+        for c in reversed(self.channels):
+            if val.id in c:
                 return True
         return False
 
@@ -48,8 +62,22 @@ class IRBuilder:
         return None
 
     def build(self, tree: ast.AST):
+        # Create a special function for global initializations
+        global_init = IRFunction(
+            name="global_init",
+            return_type=VOID_TYPE,
+            args=[]
+        )
+        self.module.functions.append(global_init)
+        self.current_function = global_init
+        self.current_block = IRBlock(label="init")
+        global_init.blocks.append(self.current_block)
+
         for stmt in tree.body:
             self.visit(stmt)
+            
+        self.current_function = None
+        self.current_block = None
         return self.module
 
     def visit(self, node: ast.AST):
@@ -59,6 +87,12 @@ class IRBuilder:
 
     def generic_visit(self, node: ast.AST):
         raise NotImplementedError(f"No visitor for {node.__class__.__name__}")
+
+    def visit_Import(self, node: ast.Import):
+        pass # Imports are handled by the compiler's built-in logic for now
+
+    def visit_ImportFrom(self, node: ast.ImportFrom):
+        pass
 
     def visit_FunctionDef(self, node: ast.FunctionDef):
         return self._visit_func(node, is_async=False)
@@ -112,25 +146,30 @@ class IRBuilder:
         value_ir = self.visit_expr(node.value)
         target = node.targets[0]
         if isinstance(target, ast.Name):
-            # Check if the expression that produced value_ir was a state() call
-            # This is a bit hacky, but for MVP we can check the last instruction if it's StateInit
+            # Check if it's a state or channel initialization
             is_state = False
+            is_channel = False
             if self.current_block and self.current_block.instructions:
                 last_inst = self.current_block.instructions[-1]
                 if isinstance(last_inst, StateInit) and last_inst.result == value_ir:
                     is_state = True
+                elif isinstance(last_inst, ChannelInit) and last_inst.result == value_ir:
+                    is_channel = True
             
-            self._set_value(target.id, value_ir, is_state=is_state)
+            self._set_value(target.id, value_ir, is_state=is_state, is_channel=is_channel)
 
     def visit_AnnAssign(self, node: ast.AnnAssign):
         value_ir = self.visit_expr(node.value) if node.value else None
         if isinstance(node.target, ast.Name) and value_ir:
             is_state = False
+            is_channel = False
             if self.current_block and self.current_block.instructions:
                 last_inst = self.current_block.instructions[-1]
                 if isinstance(last_inst, StateInit) and last_inst.result == value_ir:
                     is_state = True
-            self._set_value(node.target.id, value_ir, is_state=is_state)
+                elif isinstance(last_inst, ChannelInit) and last_inst.result == value_ir:
+                    is_channel = True
+            self._set_value(node.target.id, value_ir, is_state=is_state, is_channel=is_channel)
 
     def visit_Return(self, node: ast.Return):
         value_ir = self.visit_expr(node.value) if node.value else None
@@ -195,6 +234,24 @@ class IRBuilder:
                     self.current_block.add_instruction(inst)
                     return res_val
 
+                if func_name == "Channel":
+                    res_val = IRValue(id=self._next_id(), type=ANY_TYPE)
+                    inst = ChannelInit(result=res_val)
+                    self.current_block.add_instruction(inst)
+                    return res_val
+
+                if func_name == "start_service":
+                    target_func = node.args[0].id
+                    inst = ServiceStart(func_name=target_func)
+                    self.current_block.add_instruction(inst)
+                    return IRValue(id="void", type=VOID_TYPE)
+
+                if func_name == "stop_service":
+                    target_func = node.args[0].id
+                    inst = ServiceStop(func_name=target_func)
+                    self.current_block.add_instruction(inst)
+                    return IRValue(id="void", type=VOID_TYPE)
+
                 # Check if it's a UI component
                 ui_components = {"Column", "Row", "Box", "Text", "Button"}
                 if func_name in ui_components:
@@ -209,11 +266,18 @@ class IRBuilder:
                     keywords = {}
                     for kw in node.keywords:
                         if isinstance(kw.value, ast.Lambda):
+                            self._push_scope()
+                            # Bind lambda args if any
+                            for arg in kw.value.args.args:
+                                arg_val = IRValue(id=arg.arg, type=ANY_TYPE)
+                                self._set_value(arg.arg, arg_val)
+
                             parent_block = self.current_block
                             lambda_block = IRBlock(label=f"{func_name}_{kw.arg}")
                             self.current_block = lambda_block
                             self.visit_expr(kw.value.body)
                             self.current_block = parent_block
+                            self._pop_scope()
                             keywords[kw.arg] = lambda_block
                         else:
                             keywords[kw.arg] = self.visit_expr(kw.value)
@@ -247,5 +311,32 @@ class IRBuilder:
                     inst = StateSet(state_var=obj, new_value=new_val)
                     self.current_block.add_instruction(inst)
                     return IRValue(id="void", type=VOID_TYPE)
+                
+                if self._is_channel(obj):
+                    if node.func.attr == "publish":
+                        val = self.visit_expr(node.args[0])
+                        inst = ChannelSend(channel=obj, value=val)
+                        self.current_block.add_instruction(inst)
+                        return IRValue(id="void", type=VOID_TYPE)
+                    
+                    if node.func.attr == "collect":
+                        # Assume collect takes a lambda for what to do with the value
+                        if isinstance(node.args[0], ast.Lambda):
+                            l = node.args[0]
+                            self._push_scope()
+                            # Bind lambda args
+                            for arg in l.args.args:
+                                arg_val = IRValue(id=arg.arg, type=ANY_TYPE)
+                                self._set_value(arg.arg, arg_val)
+
+                            parent_block = self.current_block
+                            collect_block = IRBlock(label="collect_body")
+                            self.current_block = collect_block
+                            self.visit_expr(l.body)
+                            self.current_block = parent_block
+                            self._pop_scope()
+                            inst = ChannelCollect(channel=obj, body=collect_block)
+                            self.current_block.add_instruction(inst)
+                            return IRValue(id="void", type=VOID_TYPE)
         
         raise NotImplementedError(f"No visitor for expr {node.__class__.__name__}")

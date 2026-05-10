@@ -1,0 +1,21 @@
+cmake_minimum_required(VERSION 3.22.1)
+
+project("laith-native")
+
+add_library(
+    laith-native
+    SHARED
+    # These will be populated by the build process
+    jni_bridge.cpp
+    {{ native_sources }}
+)
+
+find_library(
+    log-lib
+    log
+)
+
+target_link_libraries(
+    laith-native
+    ${log-lib}
+)

@@ -36,6 +36,14 @@ class SemanticAnalyzer(ast.NodeVisitor):
         # Background tasks
         self.global_scope.define(Symbol("periodic_task", SymbolKind.FUNCTION, type=VOID_TYPE))
         self.global_scope.define(Symbol("foreground_service", SymbolKind.FUNCTION, type=VOID_TYPE))
+        self.global_scope.define(Symbol("start_service", SymbolKind.FUNCTION, type=VOID_TYPE))
+        self.global_scope.define(Symbol("stop_service", SymbolKind.FUNCTION, type=VOID_TYPE))
+        
+        # IPC & Channels
+        self.global_scope.define(Symbol("Channel", SymbolKind.CLASS, type=ANY_TYPE))
+        
+        # Native compilation
+        self.global_scope.define(Symbol("native", SymbolKind.FUNCTION, type=VOID_TYPE))
 
     def analyze(self, tree: ast.AST):
         self.visit(tree)

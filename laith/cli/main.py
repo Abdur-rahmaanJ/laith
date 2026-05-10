@@ -6,6 +6,11 @@ import sys
 from laith.compiler.frontend.analyzer import SemanticAnalyzer, Parser
 from laith.compiler.ir.builder import IRBuilder
 from laith.compiler.backend.kotlin.emitter import KotlinEmitter
+from laith.compiler.backend.native.emitter import CPPEmitter
+from laith.compiler.backend.native.jni_emitter import JNIEmitter
+from laith.compiler.optimizer.base import Optimizer
+from laith.compiler.optimizer.dce import DCEPass
+from laith.compiler.optimizer.const_fold import ConstantFoldingPass
 
 console = Console()
 
@@ -26,7 +31,9 @@ def init(name: str):
         "app_name": name,
         "application_id": f"com.example.{name.lower()}",
         "namespace": f"com.example.{name.lower()}",
-        "has_workers": True # Default to True for template visibility
+        "has_workers": True,
+        "has_native": True, # Enable native by default in project config
+        "native_sources": ""
     }
     
     gen = ProjectGenerator(name, config)
@@ -85,12 +92,23 @@ def build(file: str, output: str, project: str):
         builder = IRBuilder(global_scope)
         module = builder.build(tree)
         
-        # 3. Emit Kotlin
+        # 3. Optimize
+        optimizer = Optimizer()
+        optimizer.add_pass(ConstantFoldingPass())
+        optimizer.add_pass(DCEPass())
+        optimizer.optimize(module)
+        
+        # 4. Emit Kotlin
         emitter = KotlinEmitter()
         kotlin_code = emitter.emit(module)
         
-        # 4. Handle output destination
+        # 5. Emit Native (if needed)
+        native_emitter = CPPEmitter()
+        native_code = native_emitter.emit(module)
+        
+        # 6. Handle output destination
         final_output = output or "out.kt"
+        package_name = "com.example.laithapp" # Default
         if project:
             # We assume a default package name for now, or we could read it from a config file
             package_name = "com.example.laithapp" # Should be dynamic in the future
@@ -105,6 +123,39 @@ def build(file: str, output: str, project: str):
 
         with open(final_output, "w") as f:
             f.write(kotlin_code)
+            
+        if native_code:
+            if project:
+                native_dir = os.path.join(project, "app", "src", "main", "cpp")
+            else:
+                native_dir = os.path.dirname(final_output) or "."
+            
+            os.makedirs(native_dir, exist_ok=True)
+            native_filename = os.path.basename(file).replace(".py", ".cpp")
+            native_output = os.path.join(native_dir, native_filename)
+            with open(native_output, "w") as f:
+                f.write(native_code)
+            
+            jni_emitter = JNIEmitter(package_name=package_name)
+            jni_code = jni_emitter.emit(module)
+            jni_output = os.path.join(native_dir, "jni_bridge.cpp")
+            with open(jni_output, "w") as f:
+                f.write(jni_code)
+            
+            if project:
+                # Update CMakeLists if it exists
+                cmake_path = os.path.join(native_dir, "CMakeLists.txt")
+                if os.path.exists(cmake_path):
+                    with open(cmake_path, "r") as f:
+                        cmake_content = f.read()
+                    if native_filename not in cmake_content:
+                        # Simple append for now
+                        cmake_content = cmake_content.replace("{{ native_sources }}", f"{native_filename}\n    {{{{ native_sources }}}}")
+                        with open(cmake_path, "w") as f:
+                            f.write(cmake_content)
+                
+            console.print(f"[bold green]Native code written to {native_output}[/bold green]")
+            console.print(f"[bold green]JNI bridge written to {jni_output}[/bold green]")
             
         console.print(f"[bold green]Success![/bold green] Output written to {final_output}")
         

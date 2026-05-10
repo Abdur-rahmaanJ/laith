@@ -12,6 +12,11 @@ class MainActivity : ComponentActivity() {
         
         PythonRuntime.initialize()
         
+        // Schedule periodic tasks (WorkManager)
+        // Note: In a real project, this would be imported from the generated Kotlin file
+        // We'll assume it's in the same package or globally accessible for now
+        scheduleLaithTasks(this)
+        
         setContent {
             // This will call the 'main_ui' function generated from Python
             // For now, a placeholder
