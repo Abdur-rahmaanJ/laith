@@ -21,30 +21,59 @@ def main():
 
 from laith.utils.project import ProjectGenerator
 
+from laith.utils.config import ConfigManager, AppConfig
+...
 @main.command()
 @click.argument("name")
 def init(name: str):
     """Initialize a new Laith project."""
     console.print(Panel(f"Initializing project: [bold green]{name}[/bold green]"))
     
-    config = {
-        "app_name": name,
-        "application_id": f"com.example.{name.lower()}",
-        "namespace": f"com.example.{name.lower()}",
-        "has_workers": True,
-        "has_native": True, # Enable native by default in project config
-        "native_sources": ""
-    }
+    # Create project directory first
+    os.makedirs(name, exist_ok=True)
     
-    gen = ProjectGenerator(name, config)
+    # Generate default config
+    config_obj = AppConfig(
+        name=name,
+        namespace=f"com.example.{name.lower()}"
+    )
+    config_obj.identity.id = f"com.example.{name.lower()}"
+    
+    # Write laith.toml
+    toml_path = os.path.join(name, "laith.toml")
+    with open(toml_path, "w") as f:
+        f.write(f"""# Laith Project Configuration
+version = "1.0"
+
+[app]
+name = "{name}"
+namespace = "com.example.{name.lower()}"
+
+[app.identity]
+id = "com.example.{name.lower()}"
+version_code = 1
+version_name = "1.0.0"
+
+[sdk]
+min = 24
+target = 34
+compile = 34
+
+[features]
+compose = true
+native = true
+""")
+
+    gen = ProjectGenerator(name, config_obj.to_dict())
     gen.generate()
     
     # Create default source
     os.makedirs(os.path.join(name, "src"), exist_ok=True)
     with open(os.path.join(name, "src", "main.py"), "w") as f:
-        f.write('def main():\n    print("Hello from Laith!")\n')
+        f.write('from laith import Column, Text\n\ndef main_ui():\n    Column(\n        Text("Hello from Laith!")\n    )\n')
     
     console.print(f"Created complete Android project structure for {name}")
+    console.print(f"Project configuration written to [bold cyan]{name}/laith.toml[/bold cyan]")
     console.print("\n[bold]Next steps:[/bold]")
     console.print(f"  1. cd {name}")
     console.print("  2. laith build src/main.py")
@@ -79,6 +108,13 @@ def build(file: str, output: str, project: str):
     """Compile a Python file to Kotlin."""
     console.print(f"Compiling [bold cyan]{file}[/bold cyan]...")
     
+    # 0. Load Configuration
+    config = ConfigManager.find_and_load(os.path.dirname(os.path.abspath(file)))
+    if project:
+        project_config_path = os.path.join(project, "laith.toml")
+        if os.path.exists(project_config_path):
+            config = ConfigManager.load_from_file(project_config_path)
+
     with open(file, "r") as f:
         source = f.read()
     
@@ -108,10 +144,14 @@ def build(file: str, output: str, project: str):
         
         # 6. Handle output destination
         final_output = output or "out.kt"
-        package_name = "com.example.laithapp" # Default
+        config_dict = config.to_dict()
+        package_name = config_dict["namespace"]
+
         if project:
-            # We assume a default package name for now, or we could read it from a config file
-            package_name = "com.example.laithapp" # Should be dynamic in the future
+            # Re-run generator to keep native project in sync with laith.toml
+            gen = ProjectGenerator(project, config.to_dict())
+            gen.generate()
+            
             package_path = package_name.replace(".", "/")
             dest_dir = os.path.join(project, "app", "src", "main", "kotlin", package_path)
             os.makedirs(dest_dir, exist_ok=True)

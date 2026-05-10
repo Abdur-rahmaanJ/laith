@@ -50,15 +50,39 @@ class ProjectGenerator:
         
         # Simple template rendering
         for key, value in self.config.items():
+            if key == "dependencies":
+                continue
             content = content.replace(f"{{{{ {key} }}}}", str(value))
         
-        # Handle simple conditionals for workers
-        if "{% if has_workers %}" in content:
-            if self.config.get("has_workers"):
-                content = content.replace("{% if has_workers %}", "").replace("{% endif %}", "")
-            else:
-                import re
-                content = re.sub(r"{% if has_workers %}.*?{% endif %}", "", content, flags=re.DOTALL)
+        # Handle dependencies block
+        if "{{ dependencies_block }}" in content:
+            deps_str = []
+            deps = self.config.get("dependencies", {})
+            for config, libs in deps.items():
+                for lib in libs:
+                    # Handle platform-specific bom vs normal
+                    if ":" in lib:
+                        deps_str.append(f'    {config}("{lib}")')
+                    else:
+                        # Likely a bom reference or named platform
+                        deps_str.append(f'    {config}(platform("{lib}"))')
+            
+            content = content.replace("{{ dependencies_block }}", "\n".join(deps_str))
+
+        # Handle conditionals
+        import re
+        
+        # Find all {% if key %} blocks
+        if_pattern = r"{% if (\w+) %}(.*?){% endif %}"
+        
+        def replace_conditional(match):
+            key = match.group(1)
+            inner_content = match.group(2)
+            if self.config.get(key):
+                return inner_content
+            return ""
+
+        content = re.sub(if_pattern, replace_conditional, content, flags=re.DOTALL)
 
         with open(os.path.join(self.project_path, output_name), "w") as f:
             f.write(content)

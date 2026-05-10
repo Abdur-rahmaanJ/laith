@@ -1,0 +1,100 @@
+import os
+import tomli
+from typing import Dict, Any, List, Optional
+from dataclasses import dataclass, field
+
+@dataclass
+class AppIdentity:
+    id: str = "com.example.laithapp"
+    version_code: int = 1
+    version_name: str = "1.0.0"
+
+@dataclass
+class SDKConfig:
+    min: int = 24
+    target: int = 34
+    compile: int = 34
+
+@dataclass
+class AppConfig:
+    name: str = "LaithApp"
+    namespace: str = "com.example.laithapp"
+    identity: AppIdentity = field(default_factory=AppIdentity)
+    sdk: SDKConfig = field(default_factory=SDKConfig)
+    dependencies: Dict[str, List[str]] = field(default_factory=lambda: {
+        "implementation": [
+            "androidx.core:core-ktx:1.12.0",
+            "androidx.lifecycle:lifecycle-runtime-ktx:2.7.0",
+            "androidx.activity:activity-compose:1.8.2",
+            "androidx.compose.ui:ui",
+            "androidx.compose.ui:ui-graphics",
+            "androidx.compose.ui:ui-tooling-preview",
+            "androidx.compose.material3:material3",
+            "androidx.work:work-runtime-ktx:2.9.0",
+            "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3"
+        ]
+    })
+    features: Dict[str, bool] = field(default_factory=lambda: {
+        "compose": True,
+        "native": True
+    })
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "app_name": self.name,
+            "namespace": self.namespace,
+            "application_id": self.identity.id,
+            "version_code": self.identity.version_code,
+            "version_name": self.identity.version_name,
+            "min_sdk": self.sdk.min,
+            "target_sdk": self.sdk.target,
+            "compile_sdk": self.sdk.compile,
+            "has_native": self.features.get("native", False),
+            "has_workers": True, # Always true for now as we don't scan IR yet here
+            "dependencies": self.dependencies
+        }
+
+class ConfigManager:
+    @staticmethod
+    def load_from_file(file_path: str) -> AppConfig:
+        if not os.path.exists(file_path):
+            return AppConfig()
+        
+        with open(file_path, "rb") as f:
+            data = tomli.load(f)
+        
+        config = AppConfig()
+        
+        if "app" in data:
+            app = data["app"]
+            config.name = app.get("name", config.name)
+            config.namespace = app.get("namespace", config.namespace)
+            if "identity" in app:
+                ident = app["identity"]
+                config.identity.id = ident.get("id", config.identity.id)
+                config.identity.version_code = ident.get("version_code", config.identity.version_code)
+                config.identity.version_name = ident.get("version_name", config.identity.version_name)
+        
+        if "sdk" in data:
+            sdk = data["sdk"]
+            config.sdk.min = sdk.get("min", config.sdk.min)
+            config.sdk.target = sdk.get("target", config.sdk.target)
+            config.sdk.compile = sdk.get("compile", config.sdk.compile)
+            
+        if "dependencies" in data:
+            config.dependencies.update(data["dependencies"])
+            
+        if "features" in data:
+            config.features.update(data["features"])
+            
+        return config
+
+    @staticmethod
+    def find_and_load(start_path: str = ".") -> AppConfig:
+        curr = os.path.abspath(start_path)
+        while curr != os.path.dirname(curr):
+            config_path = os.path.join(curr, "laith.toml")
+            if os.path.exists(config_path):
+                return ConfigManager.load_from_file(config_path)
+            curr = os.path.dirname(curr)
+        return AppConfig()
