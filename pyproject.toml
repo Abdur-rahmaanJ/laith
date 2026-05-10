@@ -16,6 +16,7 @@ dependencies = [
     "click",
     "rich",
     "tomli",
+    "jinja2",
 ]
 
 [project.optional-dependencies]

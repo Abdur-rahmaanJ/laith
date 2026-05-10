@@ -1,11 +1,13 @@
 import os
 from typing import Dict, Any
+from jinja2 import Environment, FileSystemLoader
 
 class ProjectGenerator:
     def __init__(self, project_path: str, config: Dict[str, Any]):
         self.project_path = project_path
         self.config = config
         self.template_dir = os.path.join(os.path.dirname(__file__), "..", "templates")
+        self.env = Environment(loader=FileSystemLoader(self.template_dir))
 
     def generate(self):
         # 1. Create directory structure
@@ -45,44 +47,24 @@ class ProjectGenerator:
                     shutil.copy2(os.path.join(runtime_src, item), os.path.join(runtime_dest, item))
 
     def _generate_file(self, template_name: str, output_name: str):
-        with open(os.path.join(self.template_dir, template_name), "r") as f:
-            content = f.read()
+        # Use Jinja2 to render the template
+        template = self.env.get_template(template_name)
         
-        # Simple template rendering
-        for key, value in self.config.items():
-            if key == "dependencies":
-                continue
-            content = content.replace(f"{{{{ {key} }}}}", str(value))
+        # Prepare context
+        context = self.config.copy()
         
-        # Handle dependencies block
-        if "{{ dependencies_block }}" in content:
+        # Format dependencies for Kotlin DSL if not already formatted
+        if "dependencies" in context and isinstance(context["dependencies"], dict):
             deps_str = []
-            deps = self.config.get("dependencies", {})
-            for config, libs in deps.items():
+            for config_name, libs in context["dependencies"].items():
                 for lib in libs:
-                    # Handle platform-specific bom vs normal
                     if ":" in lib:
-                        deps_str.append(f'    {config}("{lib}")')
+                        deps_str.append(f'    {config_name}("{lib}")')
                     else:
-                        # Likely a bom reference or named platform
-                        deps_str.append(f'    {config}(platform("{lib}"))')
-            
-            content = content.replace("{{ dependencies_block }}", "\n".join(deps_str))
+                        deps_str.append(f'    {config_name}(platform("{lib}"))')
+            context["dependencies_block"] = "\n".join(deps_str)
 
-        # Handle conditionals
-        import re
+        output = template.render(**context)
         
-        # Find all {% if key %} blocks
-        if_pattern = r"{% if (\w+) %}(.*?){% endif %}"
-        
-        def replace_conditional(match):
-            key = match.group(1)
-            inner_content = match.group(2)
-            if self.config.get(key):
-                return inner_content
-            return ""
-
-        content = re.sub(if_pattern, replace_conditional, content, flags=re.DOTALL)
-
         with open(os.path.join(self.project_path, output_name), "w") as f:
-            f.write(content)
+            f.write(output)
