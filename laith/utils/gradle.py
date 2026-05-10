@@ -72,6 +72,24 @@ class GradleOrchestrator:
             console.print(f"[bold red]Gradle Execution Failed:[/bold red] {str(e)}")
             return False
 
+    def generate_signing_config(self):
+        """Generate a default signing configuration if it doesn't exist."""
+        keystore_path = os.path.join(self.project_path, "release.keystore")
+        properties_path = os.path.join(self.project_path, "keystore.properties")
+        
+        if not os.path.exists(properties_path):
+            console.print("[bold yellow]Generating release signing configuration...[/bold yellow]")
+            # In a real tool, we'd use keytool here. 
+            # For now, we'll setup the properties file.
+            content = f"""storeFile=../release.keystore
+storePassword=laithpassword
+keyAlias=laithkey
+keyPassword=laithpassword
+"""
+            with open(properties_path, "w") as f:
+                f.write(content)
+            console.print(f"Created [bold green]{properties_path}[/bold green]")
+
     def get_apk_path(self, mode: str = "debug") -> str:
         # Standard AGP output path
         return os.path.join(self.project_path, "app", "build", "outputs", "apk", mode, f"app-{mode}.apk")

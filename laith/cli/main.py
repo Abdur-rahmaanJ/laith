@@ -95,35 +95,38 @@ native = true
 
 @main.command()
 @click.option("--release", is_flag=True, help="Build in release mode")
+@click.option("--bundle", is_flag=True, help="Build AAB bundle instead of APK")
 @click.option("--project", "-p", help="Project directory")
-def compile(release: bool, project: str):
-    """Compile the generated project into an Android APK."""
+def compile(release: bool, bundle: bool, project: str):
+    """Compile the generated project into an Android APK/AAB."""
     # 0. Detect project
-    if project:
-        if not os.path.exists(os.path.join(project, "laith.toml")):
-             # Check if we are ALREADY in the project and user redundantly passed the name
-             if os.path.basename(os.path.abspath(".")) == project and os.path.exists("laith.toml"):
-                 project = "."
-             else:
-                 console.print(f"[bold red]Error:[/bold red] '{project}' is not a Laith project (no laith.toml found).")
-                 sys.exit(1)
-    else:
-        _, project = ConfigManager.find_and_load()
+    config, project_path = ConfigManager.find_and_load(project or ".")
     
-    if not project:
+    if not project_path:
         console.print("[bold red]Error:[/bold red] No Laith project found. Run this inside a project or use --project.")
         sys.exit(1)
 
     mode = "release" if release else "debug"
     console.print(f"[bold yellow]Compiling Android app ({mode} mode)...[/bold yellow]")
     
-    gradle = GradleOrchestrator(project)
-    task = f"assemble{mode.capitalize()}"
+    gradle = GradleOrchestrator(project_path)
     
+    if release:
+        gradle.generate_signing_config()
+        
+    task = f"assemble{mode.capitalize()}"
+    if bundle:
+        task = f"bundle{mode.capitalize()}"
+        
     if gradle.run_task(task):
-        apk_path = gradle.get_apk_path(mode)
-        console.print(f"\n[bold green]Build Successful![/bold green]")
-        console.print(f"APK located at: [bold cyan]{apk_path}[/bold cyan]")
+        if bundle:
+             path = os.path.join(project_path, "app", "build", "outputs", "bundle", mode, f"app-{mode}.aab")
+             console.print(f"\n[bold green]Build Successful![/bold green]")
+             console.print(f"AAB located at: [bold cyan]{path}[/bold cyan]")
+        else:
+             apk_path = gradle.get_apk_path(mode)
+             console.print(f"\n[bold green]Build Successful![/bold green]")
+             console.print(f"APK located at: [bold cyan]{apk_path}[/bold cyan]")
     else:
         console.print("\n[bold red]Build Failed.[/bold red]")
         sys.exit(1)
