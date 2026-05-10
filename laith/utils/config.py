@@ -90,11 +90,15 @@ class ConfigManager:
         return config
 
     @staticmethod
-    def find_and_load(start_path: str = ".") -> AppConfig:
+    def find_and_load(start_path: str = ".") -> tuple[AppConfig, Optional[str]]:
         curr = os.path.abspath(start_path)
+        # If start_path is a file, use its directory
+        if os.path.isfile(curr):
+            curr = os.path.dirname(curr)
+
         while curr != os.path.dirname(curr):
             config_path = os.path.join(curr, "laith.toml")
             if os.path.exists(config_path):
-                return ConfigManager.load_from_file(config_path)
+                return ConfigManager.load_from_file(config_path), curr
             curr = os.path.dirname(curr)
-        return AppConfig()
+        return AppConfig(), None

@@ -22,6 +22,8 @@ def main():
 from laith.utils.project import ProjectGenerator
 
 from laith.utils.config import ConfigManager, AppConfig
+from laith.utils.gradle import GradleOrchestrator
+from laith.utils.adb import ADBOrchestrator
 ...
 @main.command()
 @click.argument("name")
@@ -67,6 +69,10 @@ native = true
     gen = ProjectGenerator(name, config_obj.to_dict())
     gen.generate()
     
+    # Inject Gradle Wrapper
+    gradle = GradleOrchestrator(name)
+    gradle.inject_wrapper()
+    
     # Create default source
     os.makedirs(os.path.join(name, "src"), exist_ok=True)
     with open(os.path.join(name, "src", "main.py"), "w") as f:
@@ -81,24 +87,82 @@ native = true
 
 @main.command()
 @click.option("--release", is_flag=True, help="Build in release mode")
-@click.option("--project", "-p", default=".", help="Project directory")
+@click.option("--project", "-p", help="Project directory")
 def compile(release: bool, project: str):
     """Compile the generated project into an Android APK."""
+    # 0. Detect project
+    if not project:
+        _, project = ConfigManager.find_and_load()
+    
+    if not project:
+        console.print("[bold red]Error:[/bold red] No Laith project found. Run this inside a project or use --project.")
+        sys.exit(1)
+
     mode = "release" if release else "debug"
     console.print(f"[bold yellow]Compiling Android app ({mode} mode)...[/bold yellow]")
     
-    # 1. Ensure build/ folder exists
-    os.makedirs(os.path.join(project, "build"), exist_ok=True)
+    gradle = GradleOrchestrator(project)
+    task = f"assemble{mode.capitalize()}"
     
-    # 2. Check for gradlew
-    gradlew = os.path.join(project, "gradlew")
-    if not os.path.exists(gradlew):
-        # We might need to copy a gradlew wrapper or tell the user to use their own
-        console.print("[yellow]Warning: gradlew not found. You may need to install Gradle locally.[/yellow]")
+    if gradle.run_task(task):
+        apk_path = gradle.get_apk_path(mode)
+        console.print(f"\n[bold green]Build Successful![/bold green]")
+        console.print(f"APK located at: [bold cyan]{apk_path}[/bold cyan]")
+    else:
+        console.print("\n[bold red]Build Failed.[/bold red]")
+        sys.exit(1)
+
+@main.command()
+@click.option("--device", "-d", help="Target device ID")
+@click.option("--project", "-p", help="Project directory")
+def run(device: str, project: str):
+    """Build, install, and run the app on a device."""
+    # 1. Load config for package name
+    if not project:
+        config, project = ConfigManager.find_and_load()
+    else:
+        config = ConfigManager.load_from_file(os.path.join(project, "laith.toml"))
     
-    console.print(f"Running: [cyan]./gradlew assemble{mode.capitalize()}[/cyan]")
-    # In a full environment we would subprocess.run(gradlew)
-    console.print("\n[bold green]Project is ready for Android Studio or Gradle CLI.[/bold green]")
+    if not project:
+        console.print("[bold red]Error:[/bold red] No Laith project found.")
+        sys.exit(1)
+
+    package_name = config.identity.id
+    
+    # 2. Build Debug APK
+    gradle = GradleOrchestrator(project)
+    if not gradle.run_task("assembleDebug"):
+        console.print("[bold red]Build failed. Aborting run.[/bold red]")
+        sys.exit(1)
+    
+    apk_path = gradle.get_apk_path("debug")
+    
+    # 3. Device Discovery
+    adb = ADBOrchestrator()
+    try:
+        devices = adb.list_devices()
+    except Exception:
+        sys.exit(1)
+    
+    if not devices:
+        console.print("[bold red]No devices found.[/bold red] Connect a device or start an emulator.")
+        sys.exit(1)
+    
+    target_device = device or devices[0]
+    if device and device not in devices:
+        console.print(f"[bold red]Device {device} not found.[/bold red]")
+        sys.exit(1)
+
+    # 4. Install and Start
+    try:
+        adb.install_apk(target_device, apk_path)
+        adb.start_activity(target_device, package_name)
+        
+        # 5. Telemetry
+        adb.stream_logs(target_device, package_name)
+    except Exception as e:
+        console.print(f"[bold red]Run failed:[/bold red] {str(e)}")
+        sys.exit(1)
 
 @main.command()
 @click.argument("file", type=click.Path(exists=True))
@@ -109,11 +173,10 @@ def build(file: str, output: str, project: str):
     console.print(f"Compiling [bold cyan]{file}[/bold cyan]...")
     
     # 0. Load Configuration
-    config = ConfigManager.find_and_load(os.path.dirname(os.path.abspath(file)))
-    if project:
-        project_config_path = os.path.join(project, "laith.toml")
-        if os.path.exists(project_config_path):
-            config = ConfigManager.load_from_file(project_config_path)
+    if not project:
+        config, project = ConfigManager.find_and_load(os.path.dirname(os.path.abspath(file)))
+    else:
+        config = ConfigManager.load_from_file(os.path.join(project, "laith.toml"))
 
     with open(file, "r") as f:
         source = f.read()
@@ -155,6 +218,8 @@ def build(file: str, output: str, project: str):
             package_path = package_name.replace(".", "/")
             dest_dir = os.path.join(project, "app", "src", "main", "kotlin", package_path)
             os.makedirs(dest_dir, exist_ok=True)
+            
+            # Map input filename to output filename (main.py -> main.kt)
             filename = os.path.basename(file).replace(".py", ".kt")
             final_output = os.path.join(dest_dir, filename)
             
