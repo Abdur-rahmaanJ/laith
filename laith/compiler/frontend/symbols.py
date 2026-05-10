@@ -38,6 +38,7 @@ class Scope:
         self.kind = kind
         self.symbols: Dict[str, Symbol] = {}
         self.children: List[Scope] = []
+        self.metadata: Dict[str, Any] = {}
 
     def define(self, symbol: Symbol) -> None:
         self.symbols[symbol.name] = symbol

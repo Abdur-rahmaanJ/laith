@@ -22,6 +22,7 @@ class AppConfig:
     version: str = "1.0"
     identity: AppIdentity = field(default_factory=AppIdentity)
     sdk: SDKConfig = field(default_factory=SDKConfig)
+    permissions: List[str] = field(default_factory=list)
     dependencies: Dict[str, List[str]] = field(default_factory=lambda: {
         "implementation": [
             "androidx.compose:compose-bom:2023.08.00",
@@ -52,55 +53,40 @@ class AppConfig:
             "target_sdk": self.sdk.target,
             "compile_sdk": self.sdk.compile,
             "has_native": self.features.get("native", False),
-            "has_workers": True, # Always true for now as we don't scan IR yet here
-            "dependencies": self.dependencies
+            "has_workers": True,
+            "dependencies": self.dependencies,
+            "permissions": self.permissions
         }
 
 class ConfigManager:
     @staticmethod
     def load_from_file(file_path: str) -> AppConfig:
-        if not os.path.exists(file_path):
-            return AppConfig()
-        
-        with open(file_path, "rb") as f:
-            data = tomli.load(f)
-        
+        if not os.path.exists(file_path): return AppConfig()
+        with open(file_path, "rb") as f: data = tomli.load(f)
         config = AppConfig()
-        
         if "app" in data:
             app = data["app"]
             config.name = app.get("name", config.name)
             config.namespace = app.get("namespace", config.namespace)
+            config.permissions = app.get("permissions", [])
             if "identity" in app:
                 ident = app["identity"]
                 config.identity.id = ident.get("id", config.identity.id)
                 config.identity.version_code = ident.get("version_code", config.identity.version_code)
                 config.identity.version_name = ident.get("version_name", config.identity.version_name)
-        
         if "sdk" in data:
-            sdk = data["sdk"]
-            config.sdk.min = sdk.get("min", config.sdk.min)
-            config.sdk.target = sdk.get("target", config.sdk.target)
-            config.sdk.compile = sdk.get("compile", config.sdk.compile)
-            
-        if "dependencies" in data:
-            config.dependencies.update(data["dependencies"])
-            
-        if "features" in data:
-            config.features.update(data["features"])
-            
+            sdk = data["sdk"]; config.sdk.min = sdk.get("min", config.sdk.min)
+            config.sdk.target = sdk.get("target", config.sdk.target); config.sdk.compile = sdk.get("compile", config.sdk.compile)
+        if "dependencies" in data: config.dependencies.update(data["dependencies"])
+        if "features" in data: config.features.update(data["features"])
         return config
 
     @staticmethod
     def find_and_load(start_path: str = ".") -> tuple[AppConfig, Optional[str]]:
         curr = os.path.abspath(start_path)
-        # If start_path is a file, use its directory
-        if os.path.isfile(curr):
-            curr = os.path.dirname(curr)
-
+        if os.path.isfile(curr): curr = os.path.dirname(curr)
         while curr != os.path.dirname(curr):
             config_path = os.path.join(curr, "laith.toml")
-            if os.path.exists(config_path):
-                return ConfigManager.load_from_file(config_path), curr
+            if os.path.exists(config_path): return ConfigManager.load_from_file(config_path), curr
             curr = os.path.dirname(curr)
         return AppConfig(), None

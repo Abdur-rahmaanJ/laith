@@ -17,6 +17,7 @@ class KotlinEmitter:
         self.indent_level = 0
         self.global_values = set()
         self.current_func_is_ui = False
+        self.in_ui_lambda = False
         self.current_self_id = None
         self.current_class_name = None
         self.imports = {
@@ -128,14 +129,11 @@ class KotlinEmitter:
             self._write(f"val {self._v(inst.result)} = {inst.class_name}().apply {{ __init__({args}) }}")
         elif isinstance(inst, StateInit):
             val = self._v(inst.initial_value)
-            self._write(f"val {self._v(inst.result)} = MutableStateFlow({val})")
+            self._write(f"val {self._v(inst.result)} = MutableStateFlow<Any?>({val})")
             self.imports.add("kotlinx.coroutines.flow.MutableStateFlow")
 
     def _v(self, val: IRValue) -> str:
-        # Static class access from SDK bridge
-        if "." in val.type.name and val.id == val.type.name.split(".")[-1]:
-             return val.type.name
-        # Internal variable naming
+        if "." in val.type.name and val.id == val.type.name.split(".")[-1]: return val.type.name
         if val.id[0].isupper() and val.id not in ["AppState", "LabState", "Lab", "App", "self"]: return val.id
         return f"v_{val.id}"
 
@@ -152,18 +150,18 @@ class KotlinEmitter:
             op_map = {"add": "+", "sub": "-", "mul": "*", "div": "/", "lt": "<", "gt": ">"}
             op = op_map.get(inst.op, inst.op)
             l_val, r_val = self._v(inst.left), self._v(inst.right)
-            
-            # Type casting for Any? operands
-            l_cast = f"({l_val} as? Int ?: 0)" if inst.op != "add" else f"({l_val} ?: \"\")"
-            r_cast = f"({r_val} as? Int ?: 0)" if inst.op != "add" else f"({r_val} ?: \"\")"
-            
-            if inst.op == "add":
-                 # If one is string, both should be string-ish
-                 self._write(f"val {self._v(inst.result)} = \"${{({l_val} ?: \"\")}} ${{({r_val} ?: \"\")}} \".trim()")
+            if inst.op == "add": 
+                self._write(f"val {self._v(inst.result)} = \"${{({l_val} ?: \"\")}} ${{({r_val} ?: \"\")}} \".trim()")
             else:
-                 self._write(f"val {self._v(inst.result)} = {l_cast} {op} {r_cast}")
+                l_expr = f"({l_val} as? Number)?.toInt() ?: 0"
+                r_expr = f"({r_val} as? Number)?.toInt() ?: 0"
+                self._write(f"val {self._v(inst.result)} = {l_expr} {op} {r_expr}")
         elif isinstance(inst, Call):
             args_str = ", ".join(f"{self._v(arg)}" for arg in inst.args)
+            if inst.func_name == "vibrate":
+                 self._write(f"PythonRuntime.vibrate(context, ({args_str} as? Number)?.toLong() ?: 500L)")
+                 return
+            
             if inst.result: self._write(f"val {self._v(inst.result)} = {inst.func_name}({args_str})")
             else: self._write(f"{inst.func_name}({args_str})")
         elif isinstance(inst, MethodCall):
@@ -175,7 +173,7 @@ class KotlinEmitter:
                 self._write(f"({obj_name} as? MutableState<Any?>)?.value = {v}")
                 return
             if inst.result: self._write(f"val {self._v(inst.result)} = {obj_name}.{inst.method_name}({args_str})")
-            else: self._write(f"{obj_name}.{inst.method_name}({args_str})")
+            else: self._write(f"{obj_name}.{method_name}({args_str})")
         elif isinstance(inst, ClassInit):
             args = ", ".join(self._v(a) for a in inst.args)
             fqn = inst.result.type.name
@@ -185,14 +183,15 @@ class KotlinEmitter:
             else: self._write(f"val {self._v(inst.result)} = {inst.class_name}().apply {{ __init__({args}) }}")
         elif isinstance(inst, AttributeGet):
             obj_name = "this" if (self.current_self_id and inst.obj.id == self.current_self_id) else self._v(inst.obj)
+            if "." in inst.obj.type.name: obj_name = inst.obj.type.name
             self._write(f"val {self._v(inst.result)} = {obj_name}.{inst.attr_name}")
         elif isinstance(inst, AttributeSet):
             obj_name = "this" if (self.current_self_id and inst.obj.id == self.current_self_id) else self._v(inst.obj)
             self._write(f"{obj_name}.{inst.attr_name} = {self._v(inst.value)}")
         elif isinstance(inst, StateInit):
             val = self._v(inst.initial_value)
-            if self.current_func_is_ui: self._write(f"val {self._v(inst.result)} = remember {{ mutableStateOf({val}) }}")
-            else: self._write(f"val {self._v(inst.result)} = MutableStateFlow({val})")
+            if self.current_func_is_ui: self._write(f"val {self._v(inst.result)} = remember {{ mutableStateOf<Any?>({val}) }}")
+            else: self._write(f"val {self._v(inst.result)} = MutableStateFlow<Any?>({val})")
         elif isinstance(inst, UICall):
             args_list = []
             if inst.func_name == "Button" and inst.args: label = self._v(inst.args[0])
@@ -207,19 +206,21 @@ class KotlinEmitter:
                 kw_name = next(k for k, v in inst.keywords.items() if isinstance(v, IRBlock))
                 block = inst.keywords[kw_name]
                 self._write(f"Button(onClick = {{")
-                self.indent_level += 1; self.visit_block(block); self.indent_level -= 1
+                self.indent_level += 1; prev = self.in_ui_lambda; self.in_ui_lambda = True
+                self.visit_block(block); self.in_ui_lambda = prev; self.indent_level -= 1
                 self._write("}) {")
                 self.indent_level += 1; self._write(f"Text({self._v(inst.args[0])})")
                 self.indent_level -= 1; self._write("}")
             elif inst.body:
-                self._write(f"{call_str} {{")
+                self._write(f"{inst.func_name}({', '.join(args_list)}) {{")
                 self.indent_level += 1; self.visit_block(inst.body); self.indent_level -= 1
                 self._write("}")
             else: self._write(call_str)
         elif isinstance(inst, StateGet):
             obj_name = self._v(inst.state_var)
-            if self.current_func_is_ui and inst.state_var.id in self.global_values:
-                self._write(f"val {self._v(inst.result)} = ({obj_name} as? StateFlow<Any?>)?.collectAsState()?.value")
+            # If in UI and NOT in a lambda, we MUST collect for reactivity
+            if self.current_func_is_ui and not self.in_ui_lambda:
+                self._write(f"val {self._v(inst.result)} = ({obj_name} as? StateFlow<Any?>)?.collectAsState()?.value ?: ({obj_name} as? MutableState<Any?>)?.value")
             else:
                 self._write(f"val {self._v(inst.result)} = ({obj_name} as? MutableStateFlow<Any?>)?.value ?: ({obj_name} as? MutableState<Any?>)?.value")
         elif isinstance(inst, StateSet):

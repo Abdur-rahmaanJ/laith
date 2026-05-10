@@ -1,6 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    {% for perm in all_permissions %}
+    <uses-permission android:name="{{ perm }}" />
+    {% endfor %}
+
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"

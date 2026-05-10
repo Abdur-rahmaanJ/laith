@@ -275,6 +275,9 @@ def build(file: str, output: str, project: str):
             # Ensure app_name is always valid (basename) even if project path is complex
             config_dict["app_name"] = os.path.basename(os.path.abspath(project))
             
+            # Pass inferred permissions to the generator
+            config_dict["inferred_permissions"] = global_scope.metadata.get("required_permissions", [])
+            
             gen = ProjectGenerator(project, config_dict)
             gen.generate()
             

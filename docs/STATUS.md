@@ -61,3 +61,14 @@
 | JNI Bridge | ✅ | Fully automated boilerplate generation |
 | NDK Integration | ✅ | CMake and Gradle linkage |
 | LLVM Integration | 🏗️ | Planned for future optimization |
+
+## Future Roadmap (Phase 8+)
+
+| Phase | Title | Focus | Status |
+| --- | --- | --- | --- |
+| **Phase 6** | Object Model | Classes, Inheritance, Dataclasses | ✅ |
+| **Phase 7** | The Great Bridge | Automated Android SDK API generation | ✅ |
+| **Phase 8** | Diagnostics | Source Maps and Stack Trace rewriting | 🏗️ |
+| **Phase 9** | Advanced Opts | Inlining and Escape Analysis | 🏗️ |
+| **Phase 10** | IDE / DX | VSCode Plugin and Live Preview | 🏗️ |
+| **Phase 11** | Production | Automated Signing and AAB support | 🏗️ |
