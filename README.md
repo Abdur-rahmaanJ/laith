@@ -65,6 +65,10 @@ compose = true
 native = true
 ```
 
+## Ai Contribution Policy
+
+This project uses AI. If you use Ai and bring sensible improvement, then great. If it's mindless slop, then it wont get reviewed.
+
 ## Core Principles
 
 1. **No embedded CPython**: No interpreter overhead; small binaries and fast startup.
