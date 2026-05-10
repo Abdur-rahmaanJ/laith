@@ -11,6 +11,7 @@ from laith.compiler.backend.native.jni_emitter import JNIEmitter
 from laith.compiler.optimizer.base import Optimizer
 from laith.compiler.optimizer.dce import DCEPass
 from laith.compiler.optimizer.const_fold import ConstantFoldingPass
+from laith.compiler.optimizer.inliner import InlinerPass
 
 console = Console()
 
@@ -254,6 +255,7 @@ def build(file: str, output: str, project: str):
         optimizer = Optimizer()
         optimizer.add_pass(ConstantFoldingPass())
         optimizer.add_pass(DCEPass())
+        optimizer.add_pass(InlinerPass())
         optimizer.optimize(module)
         
         # 4. Emit Kotlin
