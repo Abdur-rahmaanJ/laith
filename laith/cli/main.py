@@ -205,6 +205,57 @@ def run(ctx, device: str, project: str):
         console.print(f"[bold red]Run failed:[/bold red] {str(e)}")
         sys.exit(1)
 
+@main.command()
+@click.option("--device", "-d", help="Target device ID")
+@click.option("--project", "-p", help="Project directory")
+def watch(device: str, project: str):
+    """Watch for changes and live-reload on device."""
+    import time
+    from pathlib import Path
+    
+    # 0. Load Configuration
+    config, project_path = ConfigManager.find_and_load(project or ".")
+    if not project_path:
+        console.print("[bold red]Error:[/bold red] No Laith project found.")
+        sys.exit(1)
+        
+    src_dir = Path(project_path) / "src"
+    console.print(f"Watching [bold cyan]{src_dir}[/bold cyan] for changes...")
+    
+    last_mtime = {}
+    
+    def get_mtimes():
+        return {f: f.stat().st_mtime for f in src_dir.glob("**/*.py")}
+    
+    last_mtimes = get_mtimes()
+    
+    try:
+        while True:
+            time.sleep(1)
+            curr_mtimes = get_mtimes()
+            
+            changed = False
+            for f, mtime in curr_mtimes.items():
+                if f not in last_mtimes or mtime > last_mtimes[f]:
+                    changed = True
+                    break
+            
+            if changed:
+                console.print("\n[bold yellow]Change detected, rebuilding...[/bold yellow]")
+                # Invoke build and run logic (simplified for now)
+                try:
+                    # We reuse build() and run() logic here
+                    ctx = click.get_current_context()
+                    ctx.invoke(build, file=str(src_dir / "main.py"), project=project_path)
+                    ctx.invoke(run, device=device, project=project_path)
+                    console.print("[bold green]Live Preview Updated.[/bold green]")
+                except Exception as e:
+                    console.print(f"[bold red]Rebuild failed:[/bold red] {str(e)}")
+                
+                last_mtimes = curr_mtimes
+    except KeyboardInterrupt:
+        console.print("\n[bold yellow]Stopping Live Preview...[/bold yellow]")
+
 @main.command(name="android")
 @click.option("--device", "-d", help="Target device ID")
 @click.option("--project", "-p", help="Project directory")
