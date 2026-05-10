@@ -15,38 +15,59 @@ class JNIEmitter:
 
     def emit(self, module: IRModule) -> str:
         native_functions = [f for f in module.functions if any(d["name"] == "native" for d in f.decorators)]
-        
+        native_methods = []
+        for cls in module.classes:
+            for method in cls.methods:
+                if any(d["name"] == "native" for d in method.decorators):
+                    native_methods.append((cls.name, method))
+
         header = [
             "#include <jni.h>",
             "#include <string>",
-            "extern \"C\" {"
+            "",
+            'extern "C" {'
         ]
         
         jni_methods = []
-        # JNI function name format: Java_package_name_ClassName_methodName
-        # Package dots replaced by underscores
         jni_package = self.package_name.replace(".", "_")
         
+        # 1. Global Functions
         for func in native_functions:
             ret_type = self._map_jni_type(func.return_type)
+            # Declared outside the JNI function but inside extern "C"
+            jni_methods.append(f'    {ret_type} {func.name}({", ".join(self._map_jni_type(a.type) for a in func.args)});')
+            
             func_name = f"Java_{jni_package}_{self.class_name}_{func.name}"
-            
             args = ["JNIEnv* env", "jobject thiz"]
-            for arg in func.args:
-                args.append(f"{self._map_jni_type(arg.type)} {arg.id}")
+            for arg in func.args: args.append(f"{self._map_jni_type(arg.type)} {arg.id}")
             
-            args_str = ", ".join(args)
+            jni_methods.append(f"    JNIEXPORT {ret_type} JNICALL {func_name}({', '.join(args)}) {{")
+            call_str = f"{func.name}({', '.join(a.id for a in func.args)})"
+            if func.return_type.name != "void":
+                jni_methods.append(f"        return {call_str};")
+            else:
+                jni_methods.append(f"        {call_str};")
+            jni_methods.append("    }")
+            jni_methods.append("")
+
+        # 2. Class Methods (mangled)
+        for cls_name, method in native_methods:
+            ret_type = self._map_jni_type(method.return_type)
+            mangled_impl = f"{cls_name}_{method.name}"
+            jni_methods.append(f'    {ret_type} {mangled_impl}({", ".join(self._map_jni_type(a.type) for a in method.args)});')
             
-            method = [
-                f"JNIEXPORT {ret_type} JNICALL",
-                f"{func_name}({args_str}) {{",
-                f"    // Bridge to C++ implementation",
-                f"    extern {ret_type} {func.name}({', '.join(self._map_jni_type(a.type) for a in func.args)});",
-                f"    return {func.name}({', '.join(a.id for a in func.args)});" if func.return_type != "void" else f"    {func.name}({', '.join(a.id for a in func.args)});",
-                f"}}"
-            ]
-            jni_methods.extend(method)
+            func_name = f"Java_{jni_package}_{self.class_name}_{mangled_impl}"
+            args = ["JNIEnv* env", "jobject thiz"]
+            for arg in method.args: args.append(f"{self._map_jni_type(arg.type)} {arg.id}")
+            
+            jni_methods.append(f"    JNIEXPORT {ret_type} JNICALL {func_name}({', '.join(args)}) {{")
+            call_str = f"{mangled_impl}({', '.join(a.id for a in method.args)})"
+            if method.return_type.name != "void":
+                jni_methods.append(f"        return {call_str};")
+            else:
+                jni_methods.append(f"        {call_str};")
+            jni_methods.append("    }")
             jni_methods.append("")
 
         footer = ["}"]
-        return "\n".join(header + [""] + jni_methods + footer)
+        return "\n".join(header + jni_methods + footer)

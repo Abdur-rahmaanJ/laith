@@ -1,8 +1,8 @@
 from laith.compiler.ir.nodes import (
     IRModule, IRFunction, IRBlock, IRInstruction, IRValue,
-    Constant, BinaryOp, Call, Return
+    Constant, BinaryOp, Call, Return, IRClass, IRField, IRMethod
 )
-from typing import List
+from typing import List, Dict, Any, Union
 
 class CPPEmitter:
     def __init__(self):
@@ -16,10 +16,15 @@ class CPPEmitter:
         self.output.append(f"{self._indent()}{text}")
 
     def emit(self, module: IRModule) -> str:
-        # For MVP, we only emit functions marked as native
+        # Collect native functions and native methods
         native_functions = [f for f in module.functions if any(d["name"] == "native" for d in f.decorators)]
+        native_methods = []
+        for cls in module.classes:
+            for method in cls.methods:
+                if any(d["name"] == "native" for d in method.decorators):
+                    native_methods.append((cls.name, method))
         
-        if not native_functions:
+        if not native_functions and not native_methods:
             return ""
 
         header = [
@@ -37,6 +42,21 @@ class CPPEmitter:
             self.visit_function(func)
             self.output.append("")
 
+        for cls_name, method in native_methods:
+            # For C linkage, mangled name: ClassName_methodName
+            mangled_name = f"{cls_name}_{method.name}"
+            # Create a clone for visitation to avoid mutating original IR
+            mangled_method = IRMethod(
+                name=mangled_name,
+                return_type=method.return_type,
+                args=method.args,
+                is_async=method.is_async,
+                blocks=method.blocks,
+                decorators=method.decorators
+            )
+            self.visit_function(mangled_method)
+            self.output.append("")
+
         self.indent_level = 0
         footer = ["}", ""]
         
@@ -46,14 +66,13 @@ class CPPEmitter:
         return f"v_{val.id}"
 
     def _map_type(self, t) -> str:
-        # Simple mapping for C++
         from laith.compiler.frontend.symbols import INT_TYPE, STR_TYPE, BOOL_TYPE
         if t == INT_TYPE: return "int64_t"
         if t == STR_TYPE: return "const char*"
         if t == BOOL_TYPE: return "bool"
         return "void*"
 
-    def visit_function(self, func: IRFunction):
+    def visit_function(self, func: Union[IRFunction, IRMethod]):
         ret_type = self._map_type(func.return_type)
         args_str = ", ".join(f"{self._map_type(arg.type)} {self._v(arg)}" for arg in func.args)
         
@@ -80,7 +99,7 @@ class CPPEmitter:
             self._write(f"{self._map_type(inst.result.type)} {self._v(inst.result)} = {val};")
             
         elif isinstance(inst, BinaryOp):
-            op_map = {"add": "+", "sub": "-", "mul": "*", "div": "/"}
+            op_map = {"add": "+", "sub": "-", "mul": "*", "div": "/", "lt": "<", "gt": ">"}
             op = op_map.get(inst.op, inst.op)
             self._write(f"{self._map_type(inst.result.type)} {self._v(inst.result)} = {self._v(inst.left)} {op} {self._v(inst.right)};")
             

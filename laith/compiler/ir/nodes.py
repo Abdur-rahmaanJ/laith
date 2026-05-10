@@ -91,7 +91,7 @@ class Call(IRInstruction):
         return self.args
 
     def has_side_effects(self) -> bool:
-        return True # Calls are assumed to have side effects for now
+        return True
 
     def __repr__(self) -> str:
         args_str = ", ".join(v.id for v in self.args)
@@ -208,6 +208,31 @@ class ServiceStop(IRInstruction):
 
     def __repr__(self) -> str:
         return f"service_stop({self.func_name})"
+
+@dataclass(kw_only=True)
+class Jump(IRInstruction):
+    target_label: str
+    
+    def has_side_effects(self) -> bool:
+        return True
+
+    def __repr__(self) -> str:
+        return f"jump {self.target_label}"
+
+@dataclass(kw_only=True)
+class Branch(IRInstruction):
+    condition: IRValue
+    true_label: str
+    false_label: str
+    
+    def get_operands(self) -> List[IRValue]:
+        return [self.condition]
+
+    def has_side_effects(self) -> bool:
+        return True
+
+    def __repr__(self) -> str:
+        return f"branch {self.condition.id}, {self.true_label}, {self.false_label}"
 
 @dataclass(kw_only=True)
 class ClassInit(IRInstruction):

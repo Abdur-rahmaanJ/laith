@@ -72,7 +72,7 @@ class BridgeManager:
 
     def find_class_by_short_name(self, short_name: str) -> Optional[str]:
         """Attempt to find a fully qualified class name by its short name."""
-        # For MVP, we'll hardcode some common mappings or scan a list
+        print(f"DEBUG: Searching SDK for {short_name}...")
         common_packages = [
             "android.hardware.camera2",
             "android.location",
@@ -85,5 +85,7 @@ class BridgeManager:
         for pkg in common_packages:
             fqn = f"{pkg}.{short_name}"
             if self.lookup_class(fqn):
+                print(f"DEBUG: Found {fqn}")
                 return fqn
+        print(f"DEBUG: {short_name} not found in common SDK packages.")
         return None

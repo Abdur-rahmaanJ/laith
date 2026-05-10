@@ -1,15 +1,18 @@
 import ast
 from typing import Dict, List, Optional, Union
-from laith.compiler.frontend.symbols import Scope, Symbol, SymbolKind, Type, ANY_TYPE, VOID_TYPE, STR_TYPE
+from laith.compiler.frontend.symbols import Scope, Symbol, SymbolKind, Type, ANY_TYPE, VOID_TYPE, STR_TYPE, BOOL_TYPE, INT_TYPE
 from laith.compiler.ir.nodes import (
     IRModule, IRFunction, IRBlock, IRInstruction, IRValue,
     Constant, BinaryOp, Call, Return, UICall,
     StateInit, StateGet, StateSet,
     ChannelInit, ChannelSend, ChannelCollect,
     ServiceStart, ServiceStop,
-    IRClass, IRField, IRMethod, ClassInit, AttributeGet, AttributeSet, MethodCall
+    IRClass, IRField, IRMethod, ClassInit, AttributeGet, AttributeSet, MethodCall,
+    Jump, Branch
 )
 
+# Custom type for state to help emitter
+STATE_TYPE = Type("laith.State")
 
 class IRBuilder:
     def __init__(self, global_scope: Scope):
@@ -19,8 +22,7 @@ class IRBuilder:
         self.current_block: Optional[IRBlock] = None
         self.value_counter = 0
         self.scope_values: List[Dict[str, IRValue]] = [{}]
-        self.state_vars: List[set] = [set()] # Set of IDs that are state variables
-        self.channels: List[set] = [set()] # Set of IDs that are channels
+        self.state_vars: List[set] = [set()]
 
     def _next_id(self) -> str:
         id_ = str(self.value_counter)
@@ -30,53 +32,33 @@ class IRBuilder:
     def _push_scope(self):
         self.scope_values.append({})
         self.state_vars.append(set())
-        self.channels.append(set())
 
     def _pop_scope(self):
         self.scope_values.pop()
         self.state_vars.pop()
-        self.channels.pop()
 
-    def _set_value(self, name: str, value: IRValue, is_state: bool = False, is_channel: bool = False):
+    def _set_value(self, name: str, value: IRValue, is_state: bool = False):
         self.scope_values[-1][name] = value
-        if is_state:
-            self.state_vars[-1].add(value.id)
-        if is_channel:
-            self.channels[-1].add(value.id)
+        if is_state: self.state_vars[-1].add(value.id)
 
     def _is_state(self, val: IRValue) -> bool:
+        if val.type == STATE_TYPE: return True
         for s in reversed(self.state_vars):
-            if val.id in s:
-                return True
-        return False
-
-    def _is_channel(self, val: IRValue) -> bool:
-        for c in reversed(self.channels):
-            if val.id in c:
-                return True
+            if val.id in s: return True
         return False
 
     def _get_value(self, name: str) -> Optional[IRValue]:
         for scope in reversed(self.scope_values):
-            if name in scope:
-                return scope[name]
+            if name in scope: return scope[name]
         return None
 
     def build(self, tree: ast.AST):
-        # Create a special function for global initializations
-        global_init = IRFunction(
-            name="global_init",
-            return_type=VOID_TYPE,
-            args=[]
-        )
+        global_init = IRFunction(name="global_init", return_type=VOID_TYPE, args=[])
         self.module.functions.append(global_init)
         self.current_function = global_init
         self.current_block = IRBlock(label="init")
         global_init.blocks.append(self.current_block)
-
-        for stmt in tree.body:
-            self.visit(stmt)
-            
+        for stmt in tree.body: self.visit(stmt)
         self.current_function = None
         self.current_block = None
         return self.module
@@ -89,372 +71,184 @@ class IRBuilder:
     def generic_visit(self, node: ast.AST):
         raise NotImplementedError(f"No visitor for {node.__class__.__name__}")
 
-    def visit_Import(self, node: ast.Import):
-        pass # Imports are handled by the compiler's built-in logic for now
-
-    def visit_ImportFrom(self, node: ast.ImportFrom):
-        pass
+    def visit_Import(self, node: ast.Import): pass
+    def visit_ImportFrom(self, node: ast.ImportFrom): pass
 
     def visit_JoinedStr(self, node: ast.JoinedStr) -> IRValue:
-        # Lower f-string to a sequence of string additions
-        if not node.values:
-            return self.visit_expr(ast.Constant(value=""))
-        
+        if not node.values: return self.visit_expr(ast.Constant(value=""))
         res = self.visit_expr(node.values[0])
         for part in node.values[1:]:
             part_val = self.visit_expr(part)
-            # SSA: create a new result for every addition
             new_res = IRValue(id=self._next_id(), type=STR_TYPE)
-            inst = BinaryOp(result=new_res, op="add", left=res, right=part_val)
-            self.current_block.add_instruction(inst)
+            self.current_block.add_instruction(BinaryOp(result=new_res, op="add", left=res, right=part_val))
             res = new_res
         return res
 
-    def visit_FormattedValue(self, node: ast.FormattedValue) -> IRValue:
-        # For now, just visit the value. 
-        # Kotlin's '+' handles string conversion automatically.
-        return self.visit_expr(node.value)
+    def visit_FormattedValue(self, node: ast.FormattedValue) -> IRValue: return self.visit_expr(node.value)
 
     def visit_ClassDef(self, node: ast.ClassDef):
-        # 1. Create IRClass
+        prev_f, prev_b = self.current_function, self.current_block
         symbol = self.global_scope.lookup(node.name)
-        ir_class = IRClass(
-            name=node.name,
-            decorators=symbol.metadata.get("decorators", []) if symbol else []
-        )
+        ir_class = IRClass(name=node.name, decorators=symbol.metadata.get("decorators", []) if symbol else [])
         self.module.classes.append(ir_class)
-        
-        # 2. Process body
-        # We need to find the class scope
         class_scope = next((s for s in self.global_scope.children if s.name == node.name), self.global_scope)
-        
         self._push_scope()
-        # Add fields from metadata
         if symbol:
-            for field_name, field_type in symbol.metadata.get("fields", {}).items():
-                ir_class.fields.append(IRField(name=field_name, type=field_type))
-
+            for f_name, f_type in symbol.metadata.get("fields", {}).items():
+                ir_class.fields.append(IRField(name=f_name, type=f_type))
         for item in node.body:
             if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                method = self._build_method(item, class_scope, node.name)
-                ir_class.methods.append(method)
-        
+                ir_class.methods.append(self._build_method(item, class_scope, node.name))
         self._pop_scope()
+        self.current_function, self.current_block = prev_f, prev_b
 
     def _build_method(self, node: Union[ast.FunctionDef, ast.AsyncFunctionDef], class_scope: Scope, class_name: str) -> IRMethod:
-        # Similar to _visit_func but for methods
         symbol = class_scope.lookup(node.name)
         method_scope = next((s for s in class_scope.children if s.name == node.name), class_scope)
-        
-        args = []
-        self._push_scope()
-        for i, arg in enumerate(node.args.args):
-            # Look up parameter symbol in the method's scope
-            arg_symbol = method_scope.lookup(arg.arg)
-            arg_type = arg_symbol.type if arg_symbol else ANY_TYPE
-            arg_val = IRValue(id=arg.arg, type=arg_type)
-            args.append(arg_val)
-            self._set_value(arg.arg, arg_val)
-
-        method = IRMethod(
-            name=node.name,
-            return_type=symbol.type if symbol else VOID_TYPE,
-            args=args,
-            is_async=isinstance(node, ast.AsyncFunctionDef),
-            decorators=symbol.metadata.get("decorators", []) if symbol else [],
-            is_constructor=(node.name == "__init__")
-        )
-        
-        # Initial block
-        entry_block = IRBlock(label="entry")
-        method.blocks.append(entry_block)
-        
-        prev_func = self.current_function
-        prev_block = self.current_block
-        self.current_function = method
-        self.current_block = entry_block
-        
-        for stmt in node.body:
-            self.visit(stmt)
-            
-        self.current_function = prev_func
-        self.current_block = prev_block
-        self._pop_scope()
-        return method
-
-    def visit_FunctionDef(self, node: ast.FunctionDef):
-        return self._visit_func(node, is_async=False)
-
-    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef):
-        return self._visit_func(node, is_async=True)
-
-    def _visit_func(self, node: Union[ast.FunctionDef, ast.AsyncFunctionDef], is_async: bool):
-        # Find function symbol
-        symbol = self.global_scope.lookup(node.name)
-        
-        # Find the function scope created during semantic analysis
-        func_scope = next((s for s in self.global_scope.children if s.name == node.name), self.global_scope)
-        
         args = []
         self._push_scope()
         for arg in node.args.args:
-            # Look up parameter symbol in the function's scope
-            arg_symbol = func_scope.lookup(arg.arg)
-            arg_type = arg_symbol.type if arg_symbol else ANY_TYPE
-            arg_val = IRValue(id=arg.arg, type=arg_type)
-            args.append(arg_val)
-            self._set_value(arg.arg, arg_val)
-
-        func = IRFunction(
-            name=node.name,
-            return_type=symbol.type if symbol else VOID_TYPE,
-            args=args,
-            is_async=is_async,
-            decorators=symbol.metadata.get("decorators", []) if symbol else []
-        )
-        self.current_function = func
-        self.module.functions.append(func)
-        
-        # Initial block
-        entry_block = IRBlock(label="entry")
-        func.blocks.append(entry_block)
-        self.current_block = entry_block
-        
-        for stmt in node.body:
-            self.visit(stmt)
-            
+            arg_symbol = method_scope.lookup(arg.arg)
+            arg_val = IRValue(id=arg.arg, type=arg_symbol.type if arg_symbol else ANY_TYPE)
+            args.append(arg_val); self._set_value(arg.arg, arg_val)
+        method = IRMethod(name=node.name, return_type=symbol.type if symbol else VOID_TYPE, args=args,
+                          is_async=isinstance(node, ast.AsyncFunctionDef), decorators=symbol.metadata.get("decorators", []) if symbol else [],
+                          is_constructor=(node.name == "__init__"))
+        entry = IRBlock(label="entry"); method.blocks.append(entry)
+        pf, pb = self.current_function, self.current_block
+        self.current_function, self.current_block = method, entry
+        for stmt in node.body: self.visit(stmt)
+        self.current_function, self.current_block = pf, pb
         self._pop_scope()
-        self.current_function = None
-        self.current_block = None
+        return method
+
+    def visit_FunctionDef(self, node: ast.FunctionDef): return self._visit_func(node, is_async=False)
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef): return self._visit_func(node, is_async=True)
+
+    def _visit_func(self, node: Union[ast.FunctionDef, ast.AsyncFunctionDef], is_async: bool):
+        pf, pb = self.current_function, self.current_block
+        symbol = self.global_scope.lookup(node.name)
+        func_scope = next((s for s in self.global_scope.children if s.name == node.name), self.global_scope)
+        args = []
+        self._push_scope()
+        for arg in node.args.args:
+            asym = func_scope.lookup(arg.arg)
+            aval = IRValue(id=arg.arg, type=asym.type if asym else ANY_TYPE)
+            args.append(aval); self._set_value(arg.arg, aval)
+        func = IRFunction(name=node.name, return_type=symbol.type if symbol else VOID_TYPE, args=args, is_async=is_async,
+                          decorators=symbol.metadata.get("decorators", []) if symbol else [])
+        self.module.functions.append(func); self.current_function = func
+        entry = IRBlock(label="entry"); func.blocks.append(entry); self.current_block = entry
+        for stmt in node.body: self.visit(stmt)
+        self._pop_scope(); self.current_function, self.current_block = pf, pb
 
     def visit_Assign(self, node: ast.Assign):
-        # Simplified: target = value
-        value_ir = self.visit_expr(node.value)
+        val = self.visit_expr(node.value)
         target = node.targets[0]
         if isinstance(target, ast.Name):
-            # Check if it's a state or channel initialization
-            is_state = False
-            is_channel = False
-            if self.current_block and self.current_block.instructions:
-                last_inst = self.current_block.instructions[-1]
-                if isinstance(last_inst, StateInit) and last_inst.result == value_ir:
-                    is_state = True
-                elif isinstance(last_inst, ChannelInit) and last_inst.result == value_ir:
-                    is_channel = True
-            
-            self._set_value(target.id, value_ir, is_state=is_state, is_channel=is_channel)
+            is_state = self._is_state(val)
+            self._set_value(target.id, val, is_state=is_state)
         elif isinstance(target, ast.Attribute):
             obj = self.visit_expr(target.value)
-            # Handle obj.attr = val
-            inst = AttributeSet(obj=obj, attr_name=target.attr, value=value_ir)
-            self.current_block.add_instruction(inst)
-
-    def visit_AnnAssign(self, node: ast.AnnAssign):
-        value_ir = self.visit_expr(node.value) if node.value else None
-        if isinstance(node.target, ast.Name) and value_ir:
-            is_state = False
-            is_channel = False
-            if self.current_block and self.current_block.instructions:
-                last_inst = self.current_block.instructions[-1]
-                if isinstance(last_inst, StateInit) and last_inst.result == value_ir:
-                    is_state = True
-                elif isinstance(last_inst, ChannelInit) and last_inst.result == value_ir:
-                    is_channel = True
-            self._set_value(node.target.id, value_ir, is_state=is_state, is_channel=is_channel)
+            self.current_block.add_instruction(AttributeSet(obj=obj, attr_name=target.attr, value=val))
 
     def visit_Return(self, node: ast.Return):
-        value_ir = self.visit_expr(node.value) if node.value else None
-        inst = Return(value=value_ir)
-        self.current_block.add_instruction(inst)
+        val = self.visit_expr(node.value) if node.value else None
+        self.current_block.add_instruction(Return(value=val))
 
-    def visit_Expr(self, node: ast.Expr):
-        self.visit_expr(node.value)
+    def visit_Expr(self, node: ast.Expr): self.visit_expr(node.value)
 
     def visit_Attribute(self, node: ast.Attribute) -> IRValue:
-        value_ir = self.visit_expr(node.value)
-        
-        # Handle state.value (existing logic)
-        if self._is_state(value_ir) and node.attr == "value":
-            res_val = IRValue(id=self._next_id(), type=ANY_TYPE)
-            inst = StateGet(result=res_val, state_var=value_ir)
-            self.current_block.add_instruction(inst)
-            return res_val
-        
-        # Handle general attribute access (obj.attr)
-        res_val = IRValue(id=self._next_id(), type=ANY_TYPE)
-        inst = AttributeGet(result=res_val, obj=value_ir, attr_name=node.attr)
-        self.current_block.add_instruction(inst)
-        return res_val
+        obj = self.visit_expr(node.value)
+        if self._is_state(obj) and node.attr == "value":
+            res = IRValue(id=self._next_id(), type=ANY_TYPE)
+            self.current_block.add_instruction(StateGet(result=res, state_var=obj))
+            return res
+        res = IRValue(id=self._next_id(), type=ANY_TYPE)
+        # If accessing a known state property of LabState
+        if obj.type.name in ["LabState", "AppState"]: res.type = STATE_TYPE
+        self.current_block.add_instruction(AttributeGet(result=res, obj=obj, attr_name=node.attr))
+        return res
 
     def visit_Constant(self, node: ast.Constant) -> IRValue:
-        # We need a type for the constant
-        from laith.compiler.frontend.symbols import INT_TYPE, STR_TYPE, BOOL_TYPE
-        val_type = ANY_TYPE
-        if isinstance(node.value, int): val_type = INT_TYPE
-        elif isinstance(node.value, str): val_type = STR_TYPE
-        elif isinstance(node.value, bool): val_type = BOOL_TYPE
-        
-        res_val = IRValue(id=self._next_id(), type=val_type)
-        inst = Constant(result=res_val, value=node.value)
-        self.current_block.add_instruction(inst)
-        return res_val
+        t = ANY_TYPE
+        if isinstance(node.value, int): t = INT_TYPE
+        elif isinstance(node.value, str): t = STR_TYPE
+        elif isinstance(node.value, bool): t = BOOL_TYPE
+        res = IRValue(id=self._next_id(), type=t)
+        self.current_block.add_instruction(Constant(result=res, value=node.value))
+        return res
 
     def visit_Name(self, node: ast.Name) -> IRValue:
         val = self._get_value(node.id)
         if val is None:
-            raise Exception(f"Undefined variable {node.id}")
+            sym = self.global_scope.lookup(node.id)
+            if sym and sym.kind == SymbolKind.CLASS: return IRValue(id=node.id, type=sym.type)
+            raise Exception(f"Undefined {node.id}")
         return val
 
     def visit_BinOp(self, node: ast.BinOp) -> IRValue:
-        left = self.visit_expr(node.left)
-        right = self.visit_expr(node.right)
-        # Simplified op mapping
-        op_map = {
-            ast.Add: "add",
-            ast.Sub: "sub",
-            ast.Mult: "mul",
-            ast.Div: "div"
-        }
-        op_name = op_map[type(node.op)]
-        res_val = IRValue(id=self._next_id(), type=left.type) # Simplified type propagation
-        inst = BinaryOp(result=res_val, op=op_name, left=left, right=right)
-        self.current_block.add_instruction(inst)
-        return res_val
+        l, r = self.visit_expr(node.left), self.visit_expr(node.right)
+        op = {ast.Add: "add", ast.Sub: "sub", ast.Mult: "mul", ast.Div: "div"}[type(node.op)]
+        res = IRValue(id=self._next_id(), type=l.type)
+        self.current_block.add_instruction(BinaryOp(result=res, op=op, left=l, right=r))
+        return res
 
     def visit_Call(self, node: ast.Call) -> IRValue:
         if isinstance(node.func, ast.Name):
-            func_name = node.func.id
-            
-            if func_name == "state":
-                init_val = self.visit_expr(node.args[0])
-                res_val = IRValue(id=self._next_id(), type=ANY_TYPE)
-                inst = StateInit(result=res_val, initial_value=init_val)
-                self.current_block.add_instruction(inst)
-                return res_val
-
-            # Check if it's a class instantiation
-            symbol = self.global_scope.lookup(func_name)
-            if symbol and symbol.kind == SymbolKind.CLASS and symbol.type.name != "Channel":
-                args = [self.visit_expr(arg) for arg in node.args]
-                res_val = IRValue(id=self._next_id(), type=symbol.type)
-                inst = ClassInit(result=res_val, class_name=func_name, args=args)
-                self.current_block.add_instruction(inst)
-                return res_val
-
-            if func_name == "Channel":
-                res_val = IRValue(id=self._next_id(), type=ANY_TYPE)
-                inst = ChannelInit(result=res_val)
-                self.current_block.add_instruction(inst)
-                return res_val
-
-            if func_name == "start_service":
-                target_func = node.args[0].id
-                inst = ServiceStart(func_name=target_func)
-                self.current_block.add_instruction(inst)
-                return IRValue(id="void", type=VOID_TYPE)
-
-            if func_name == "stop_service":
-                target_func = node.args[0].id
-                inst = ServiceStop(func_name=target_func)
-                self.current_block.add_instruction(inst)
-                return IRValue(id="void", type=VOID_TYPE)
-
-            # Check if it's a UI component
-            ui_components = {"Column", "Row", "Box", "Text", "Button"}
-            if func_name in ui_components:
-                children = []
-                immediate_args = []
-                for arg in node.args:
-                    if isinstance(arg, ast.Call) and isinstance(arg.func, ast.Name) and arg.func.id in ui_components:
-                        children.append(arg)
-                    else:
-                        immediate_args.append(arg)
-                
-                keywords = {}
+            name = node.func.id
+            if name == "state":
+                v = self.visit_expr(node.args[0])
+                res = IRValue(id=self._next_id(), type=STATE_TYPE)
+                self.current_block.add_instruction(StateInit(result=res, initial_value=v))
+                return res
+            sym = self.global_scope.lookup(name)
+            if sym and sym.kind == SymbolKind.CLASS and sym.type.name != "Channel":
+                args = [self.visit_expr(a) for a in node.args]
+                res = IRValue(id=self._next_id(), type=sym.type)
+                self.current_block.add_instruction(ClassInit(result=res, class_name=name, args=args))
+                return res
+            ui = {"Column", "Row", "Box", "Text", "Button"}
+            if name in ui:
+                kids = []; imms = []
+                for a in node.args:
+                    if isinstance(a, ast.Call) and isinstance(a.func, ast.Name) and a.func.id in ui: kids.append(a)
+                    else: imms.append(a)
+                kws = {}
                 for kw in node.keywords:
                     if isinstance(kw.value, ast.Lambda):
                         self._push_scope()
-                        # Bind lambda args if any
-                        for arg in kw.value.args.args:
-                            arg_val = IRValue(id=arg.arg, type=ANY_TYPE)
-                            self._set_value(arg.arg, arg_val)
-
-                        parent_block = self.current_block
-                        lambda_block = IRBlock(label=f"{func_name}_{kw.arg}")
-                        self.current_block = lambda_block
-                        self.visit_expr(kw.value.body)
-                        self.current_block = parent_block
-                        self._pop_scope()
-                        keywords[kw.arg] = lambda_block
-                    else:
-                        keywords[kw.arg] = self.visit_expr(kw.value)
-
-                args = [self.visit_expr(arg) for arg in immediate_args]
-                
-                ui_body = None
-                if children:
-                    parent_block = self.current_block
-                    ui_body = IRBlock(label=f"{func_name}_body")
-                    self.current_block = ui_body
-                    for child in children:
-                        self.visit_expr(child)
-                    self.current_block = parent_block
-                
-                inst = UICall(func_name=func_name, args=args, body=ui_body, keywords=keywords)
-                self.current_block.add_instruction(inst)
+                        for la in kw.value.args.args: self._set_value(la.arg, IRValue(id=la.arg, type=ANY_TYPE))
+                        pb = self.current_block
+                        lb = IRBlock(label=f"{name}_{kw.arg}"); self.current_block = lb
+                        self.visit_expr(kw.value.body); self.current_block = pb
+                        self._pop_scope(); kws[kw.arg] = lb
+                    else: kws[kw.arg] = self.visit_expr(kw.value)
+                args = [self.visit_expr(a) for a in imms]; body = None
+                if kids:
+                    pb = self.current_block
+                    body = IRBlock(label=f"{name}_body"); self.current_block = body
+                    for k in kids: self.visit_expr(k)
+                    self.current_block = pb
+                self.current_block.add_instruction(UICall(func_name=name, args=args, body=body, keywords=kws))
                 return IRValue(id="void", type=VOID_TYPE)
-            
-            args = [self.visit_expr(arg) for arg in node.args]
-            # Check for built-ins or defined functions
-            res_val = IRValue(id=self._next_id(), type=ANY_TYPE)
-            inst = Call(result=res_val, func_name=func_name, args=args)
-            self.current_block.add_instruction(inst)
-            return res_val
-            
+            args = [self.visit_expr(a) for a in node.args]
+            res = IRValue(id=self._next_id(), type=ANY_TYPE)
+            self.current_block.add_instruction(Call(result=res, func_name=name, args=args))
+            return res
         if isinstance(node.func, ast.Attribute):
             obj = self.visit_expr(node.func.value)
             if self._is_state(obj) and node.func.attr == "set":
-                new_val = self.visit_expr(node.args[0])
-                inst = StateSet(state_var=obj, new_value=new_val)
-                self.current_block.add_instruction(inst)
+                v = self.visit_expr(node.args[0])
+                self.current_block.add_instruction(StateSet(state_var=obj, new_value=v))
                 return IRValue(id="void", type=VOID_TYPE)
-            
-            if self._is_channel(obj):
-                if node.func.attr == "publish":
-                    val = self.visit_expr(node.args[0])
-                    inst = ChannelSend(channel=obj, value=val)
-                    self.current_block.add_instruction(inst)
-                    return IRValue(id="void", type=VOID_TYPE)
-                
-                if node.func.attr == "collect":
-                    # Assume collect takes a lambda for what to do with the value
-                    if isinstance(node.args[0], ast.Lambda):
-                        l = node.args[0]
-                        self._push_scope()
-                        # Bind lambda args
-                        for arg in l.args.args:
-                            arg_val = IRValue(id=arg.arg, type=ANY_TYPE)
-                            self._set_value(arg.arg, arg_val)
-
-                        parent_block = self.current_block
-                        collect_block = IRBlock(label="collect_body")
-                        self.current_block = collect_block
-                        self.visit_expr(l.body)
-                        self.current_block = parent_block
-                        self._pop_scope()
-                        inst = ChannelCollect(channel=obj, body=collect_block)
-                        self.current_block.add_instruction(inst)
-                        return IRValue(id="void", type=VOID_TYPE)
-            
-            # General method call: obj.method(args)
-            args = [self.visit_expr(arg) for arg in node.args]
-            res_val = IRValue(id=self._next_id(), type=ANY_TYPE)
-            inst = MethodCall(result=res_val, obj=obj, method_name=node.func.attr, args=args)
-            self.current_block.add_instruction(inst)
-            return res_val
+            args = [self.visit_expr(a) for a in node.args]
+            res = IRValue(id=self._next_id(), type=ANY_TYPE)
+            self.current_block.add_instruction(MethodCall(result=res, obj=obj, method_name=node.func.attr, args=args))
+            return res
+        raise NotImplementedError(f"No visitor for {node.__class__.__name__}")
 
     def visit_expr(self, node: ast.AST) -> IRValue:
         res = self.visit(node)
-        if res is None:
-             raise Exception(f"Expression {node} did not return an IRValue")
+        if res is None: raise Exception(f"No IRValue for {node}")
         return res
