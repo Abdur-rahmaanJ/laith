@@ -57,7 +57,7 @@ class SemanticAnalyzer(ast.NodeVisitor):
 
     def _visit_func(self, node: Union[ast.FunctionDef, ast.AsyncFunctionDef], is_async: bool):
         # Determine return type
-        return_type = self._resolve_type(node.returns) if node.returns else ANY_TYPE
+        return_type = self._resolve_type(node.returns) if node.returns else VOID_TYPE
         
         # Process decorators
         decorators = []

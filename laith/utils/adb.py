@@ -27,9 +27,15 @@ class ADBOrchestrator:
                 devices.append(line.split("\t")[0])
         return devices
 
+    def get_device_abi(self, device_id: str) -> str:
+        """Get the primary ABI of the device."""
+        return self._run_adb(["-s", device_id, "shell", "getprop", "ro.product.cpu.abi"]).stdout.strip()
+
     def install_apk(self, device_id: str, apk_path: str):
         console.print(f"Installing APK to [bold cyan]{device_id}[/bold cyan]...")
-        self._run_adb(["-s", device_id, "install", "-r", apk_path])
+        # Don't capture output for install so user can see progress if adb provides it
+        subprocess.run([self.adb_path, "-s", device_id, "install", "-r", apk_path], check=True)
+        console.print("[bold green]Install Successful![/bold green]")
 
     def start_activity(self, device_id: str, package_name: str, activity_name: str = ".MainActivity"):
         full_activity = f"{package_name}/{activity_name}"

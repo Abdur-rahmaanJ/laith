@@ -15,9 +15,7 @@ class JNIEmitter:
 
     def emit(self, module: IRModule) -> str:
         native_functions = [f for f in module.functions if any(d["name"] == "native" for d in f.decorators)]
-        if not native_functions:
-            return ""
-
+        
         header = [
             "#include <jni.h>",
             "#include <string>",

@@ -3,7 +3,11 @@ package {{ namespace }}
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.material3.Text
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
 import laith.runtime.PythonRuntime
 
 class MainActivity : ComponentActivity() {
@@ -13,14 +17,23 @@ class MainActivity : ComponentActivity() {
         PythonRuntime.initialize()
         
         // Schedule periodic tasks (WorkManager)
-        // Note: In a real project, this would be imported from the generated Kotlin file
-        // We'll assume it's in the same package or globally accessible for now
         scheduleLaithTasks(this)
         
         setContent {
-            // This will call the 'main_ui' function generated from Python
-            // For now, a placeholder
-            Text("Laith App Running")
+            Theme_LaithApp {
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = MaterialTheme.colorScheme.background
+                ) {
+                    // Call the main UI entry point generated from Python
+                    main_ui()
+                }
+            }
         }
     }
+}
+
+@Composable
+fun Theme_LaithApp(content: @Composable () -> Unit) {
+    MaterialTheme(content = content)
 }

@@ -19,7 +19,9 @@ class KotlinEmitter:
             "kotlinx.coroutines.*",
             "kotlinx.coroutines.flow.*",
             "androidx.compose.runtime.*",
-            "androidx.compose.ui.platform.LocalContext"
+            "androidx.compose.ui.platform.LocalContext",
+            "androidx.compose.foundation.layout.*",
+            "androidx.compose.material3.*"
         }
 
     def _indent(self):

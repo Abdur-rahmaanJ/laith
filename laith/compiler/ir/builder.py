@@ -94,6 +94,26 @@ class IRBuilder:
     def visit_ImportFrom(self, node: ast.ImportFrom):
         pass
 
+    def visit_JoinedStr(self, node: ast.JoinedStr) -> IRValue:
+        # Lower f-string to a sequence of string additions
+        if not node.values:
+            return self.visit_expr(ast.Constant(value=""))
+        
+        res = self.visit_expr(node.values[0])
+        for part in node.values[1:]:
+            part_val = self.visit_expr(part)
+            # SSA: create a new result for every addition
+            new_res = IRValue(id=self._next_id(), type=STR_TYPE)
+            inst = BinaryOp(result=new_res, op="add", left=res, right=part_val)
+            self.current_block.add_instruction(inst)
+            res = new_res
+        return res
+
+    def visit_FormattedValue(self, node: ast.FormattedValue) -> IRValue:
+        # For now, just visit the value. 
+        # Kotlin's '+' handles string conversion automatically.
+        return self.visit_expr(node.value)
+
     def visit_FunctionDef(self, node: ast.FunctionDef):
         return self._visit_func(node, is_async=False)
 
@@ -121,7 +141,7 @@ class IRBuilder:
 
         func = IRFunction(
             name=node.name,
-            return_type=symbol.type if symbol else ANY_TYPE,
+            return_type=symbol.type if symbol else VOID_TYPE,
             args=args,
             is_async=is_async,
             decorators=symbol.metadata.get("decorators", []) if symbol else []

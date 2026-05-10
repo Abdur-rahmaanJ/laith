@@ -6,28 +6,61 @@ Python → Native Android Compiler Platform.
 
 - **Frontend**: AST-based semantic analysis and type inference.
 - **IR**: SSA-based Intermediate Representation.
-- **Backend**: Kotlin/JVM emitter with coroutine and Compose support.
-- **Runtime**: Kotlin-native support for background tasks and async.
+- **Optimizer**: Multi-pass IR optimization (DCE, Constant Folding).
+- **Backend**: Multi-layered emission (Kotlin/Compose + Native C++/JNI).
+- **Orchestrator**: Automated Gradle/NDK build system and ADB device runner.
 
 ## Usage
 
 ```bash
-# Initialize a project
+# 1. Initialize a professional project
 laith init myapp
 
-# Build a Python file to Kotlin
-laith build src/main.py -o build/main.kt
+# 2. Compile the default entry point (src/main.py)
+laith build
 
-# Compile the Android app
+# 3. Build the native Android APK
 laith compile
+
+# 4. The "Inner Loop": Build, Install, Run, and Stream Logs
+laith run
+```
+
+## Project Configuration (`laith.toml`)
+
+Laith uses a declarative, versioned manifest to manage the full Android lifecycle.
+
+```toml
+# laith.toml
+version = "1.0"
+
+[app]
+name = "MyAwesomeApp"
+namespace = "com.company.awesome"
+identity = { id = "com.company.awesome", version_code = 42, version_name = "2.1.0" }
+
+[sdk]
+min = 26
+target = 34
+compile = 34
+
+[dependencies]
+implementation = [
+    "com.squareup.retrofit2:retrofit:2.9.0",
+    "androidx.compose.material3:material3:1.2.0"
+]
+
+[features]
+compose = true
+native = true
 ```
 
 ## Core Principles
 
-1. No embedded CPython.
-2. Compiled, not interpreted.
-3. Android-native abstractions (Compose, WorkManager).
-4. Strictly typed subset of Python.
+1. **No embedded CPython**: No interpreter overhead; small binaries and fast startup.
+2. **Compiled, not interpreted**: Statically analyzed and optimized for the Android runtime.
+3. **Native Stack Alignment**: Direct mapping to Compose, Coroutines, and WorkManager.
+4. **Zero-JNI Performance**: Automated C++ and JNI bridge generation for native code.
 
 ## Supported Python Subset
 
@@ -49,13 +82,10 @@ To maintain high performance and static predictability, the following Python fea
 *   **Dynamic Execution**: `eval()`, `exec()`, and dynamic `__import__()`.
 *   **Runtime Metaprogramming**: Metaclasses, monkey patching, and dynamic attribute injection.
 *   **Reflection**: Unrestricted `getattr`/`setattr` on arbitrary objects.
-*   **Classes & Inheritance**: While planned for Phase 6, custom class definitions and complex inheritance are currently not supported.
-*   **Exception Handling**: `try`/`except` blocks (planned for Phase 7).
-*   **Standard Library**: Most of Python's standard library is not available unless explicitly mapped to Android equivalents.
+*   **Classes & Inheritance**: Custom class definitions are planned for Phase 6.
+*   **Exception Handling**: `try`/`except` blocks are planned for Phase 7.
 
 ## Complete Application Demo
-
-Here is a comprehensive example demonstrating UI, reactive global state, background tasks, and native performance:
 
 ```python
 # global_app.py
@@ -80,12 +110,7 @@ async def sync_data():
     counter.set(current + 1)
     msg_channel.publish("Data synced from background")
 
-# 4. Foreground Service
-@foreground_service(notification="Location Tracking Active")
-async def tracker():
-    print("Service is running...")
-
-# 5. Native Android UI (Jetpack Compose)
+# 4. Native Android UI (Jetpack Compose)
 def main_ui():
     # Collect updates from background channel
     msg_channel.collect(lambda data: print(data))
@@ -94,7 +119,6 @@ def main_ui():
         Text("Laith Native Platform"),
         Text(f"Global Counter: {counter.value}"),
 
-        Button("Start Service", on_click=lambda: start_service(tracker)),
         Button("Compute Native", on_click=lambda: print(compute_heavy_task(10))),
 
         Row(
@@ -109,13 +133,13 @@ def main_ui():
 Laith represents a fundamental shift in how Python is used for mobile development. Unlike existing tools that wrap an interpreter, Laith treats Python as a high-level frontend for a native compiler.
 
 ### vs. Kivy & BeeWare
-*   **No Interpreter**: Kivy and BeeWare bundle a full CPython interpreter (libpython) inside your APK, leading to large binaries and slower startup. Laith **statically compiles** Python into Kotlin/JVM and C++.
-*   **Native UI**: Kivy uses a custom OpenGL-based rendering engine that doesn't "feel" native. BeeWare wraps native widgets but still runs on an interpreter. Laith generates real **Jetpack Compose** code, using the exact same primitives as modern Android apps.
+*   **No Interpreter**: Kivy and BeeWare bundle a full CPython interpreter (libpython) inside your APK. Laith **statically compiles** Python into Kotlin/JVM and C++.
+*   **Native UI**: Laith generates real **Jetpack Compose** code, using the exact same primitives as modern Android apps, rather than OpenGL custom views.
 
 ### vs. React Native
-*   **No Runtime Bridge**: React Native relies on a JavaScript bridge to communicate with native modules at runtime. Laith eliminates this overhead by compiling everything to native bytecode or JNI-linked C++ before the app even runs.
-*   **Type Safety**: Laith enforces a strictly typed subset of Python, catching errors at compile-time that would be runtime crashes in a standard JS/Python environment.
+*   **No Runtime Bridge**: React Native relies on a JavaScript bridge. Laith eliminates this overhead by compiling everything to native bytecode or JNI-linked C++ before the app even runs.
+*   **Type Safety**: Laith enforces a strictly typed subset, catching errors at compile-time that would be runtime crashes in JS.
 
 ### vs. Flutter
-*   **Ecosystem Alignment**: Flutter uses a custom rendering engine (Skia/Impeller) that bypasses the Android View system. Laith embraces the **Android Native Stack**, mapping Python directly to Kotlin Coroutines, WorkManager, and Jetpack Compose.
-*   **Direct NDK Access**: While Flutter requires complex MethodChannels for native logic, Laith allows you to mark Python functions with `@native` to generate optimized C++ and automated JNI bridges instantly.
+*   **Ecosystem Alignment**: Laith embraces the **Android Native Stack**, mapping Python directly to Kotlin Coroutines, WorkManager, and Jetpack Compose.
+*   **Direct NDK Access**: While Flutter requires complex MethodChannels, Laith allows you to mark Python functions with `@native` to generate optimized C++ and automated JNI bridges instantly.

@@ -19,9 +19,11 @@
 | Feature | Status | Note |
 | --- | --- | --- |
 | Gradle Templates | ✅ | Project and App level |
-| Manifest Generation | ✅ | Basic AndroidManifest.xml |
+| Manifest Generation | ✅ | Dynamic AndroidManifest.xml |
 | Runtime Integration | ✅ | Auto-copying Kotlin runtime files |
 | MainActivity Scaffolding | ✅ | Entry point for Compose |
+| Gradle Wrapper Injection | ✅ | Automated `gradlew` setup |
+| Binary Orchestration | ✅ | `laith compile` and `laith run` |
 
 ## Phase 2: UI System (Completed)
 

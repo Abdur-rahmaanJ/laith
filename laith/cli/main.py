@@ -34,12 +34,19 @@ def init(name: str):
     # Create project directory first
     os.makedirs(name, exist_ok=True)
     
+    # Robust name sanitization for package/ID (only alphanumeric and underscores)
+    import re
+    safe_name = re.sub(r'[^a-zA-Z0-9_]', '_', name.lower())
+    # Ensure it doesn't start with a number and has no double underscores
+    safe_name = re.sub(r'^[^a-zA-Z]+', '', safe_name)
+    safe_name = re.sub(r'_+', '_', safe_name).strip('_')
+    
     # Generate default config
     config_obj = AppConfig(
-        name=name,
-        namespace=f"com.example.{name.lower()}"
+        name=os.path.basename(name).replace("/", "_").replace("\\", "_"),
+        namespace=f"com.example.{safe_name}"
     )
-    config_obj.identity.id = f"com.example.{name.lower()}"
+    config_obj.identity.id = f"com.example.{safe_name}"
     
     # Write laith.toml
     toml_path = os.path.join(name, "laith.toml")
@@ -48,11 +55,11 @@ def init(name: str):
 version = "1.0"
 
 [app]
-name = "{name}"
-namespace = "com.example.{name.lower()}"
+name = "{config_obj.name}"
+namespace = "{config_obj.namespace}"
 
 [app.identity]
-id = "com.example.{name.lower()}"
+id = "{config_obj.identity.id}"
 version_code = 1
 version_name = "1.0.0"
 
@@ -81,9 +88,9 @@ native = true
     console.print(f"Created complete Android project structure for {name}")
     console.print(f"Project configuration written to [bold cyan]{name}/laith.toml[/bold cyan]")
     console.print("\n[bold]Next steps:[/bold]")
-    console.print(f"  1. cd {name}")
-    console.print("  2. laith build src/main.py")
-    console.print("  3. laith compile\n")
+    console.print(f"  1. [cyan]cd {name}[/cyan]")
+    console.print("  2. [cyan]laith build[/cyan]")
+    console.print("  3. [cyan]laith run[/cyan] (or [cyan]laith android[/cyan])\n")
 
 @main.command()
 @click.option("--release", is_flag=True, help="Build in release mode")
@@ -91,7 +98,15 @@ native = true
 def compile(release: bool, project: str):
     """Compile the generated project into an Android APK."""
     # 0. Detect project
-    if not project:
+    if project:
+        if not os.path.exists(os.path.join(project, "laith.toml")):
+             # Check if we are ALREADY in the project and user redundantly passed the name
+             if os.path.basename(os.path.abspath(".")) == project and os.path.exists("laith.toml"):
+                 project = "."
+             else:
+                 console.print(f"[bold red]Error:[/bold red] '{project}' is not a Laith project (no laith.toml found).")
+                 sys.exit(1)
+    else:
         _, project = ConfigManager.find_and_load()
     
     if not project:
@@ -115,13 +130,20 @@ def compile(release: bool, project: str):
 @main.command()
 @click.option("--device", "-d", help="Target device ID")
 @click.option("--project", "-p", help="Project directory")
-def run(device: str, project: str):
+@click.pass_context
+def run(ctx, device: str, project: str):
     """Build, install, and run the app on a device."""
     # 1. Load config for package name
-    if not project:
-        config, project = ConfigManager.find_and_load()
-    else:
+    if project:
+        if not os.path.exists(os.path.join(project, "laith.toml")):
+             if os.path.basename(os.path.abspath(".")) == project and os.path.exists("laith.toml"):
+                 project = "."
+             else:
+                 console.print(f"[bold red]Error:[/bold red] '{project}' is not a Laith project.")
+                 sys.exit(1)
         config = ConfigManager.load_from_file(os.path.join(project, "laith.toml"))
+    else:
+        config, project = ConfigManager.find_and_load()
     
     if not project:
         console.print("[bold red]Error:[/bold red] No Laith project found.")
@@ -129,15 +151,7 @@ def run(device: str, project: str):
 
     package_name = config.identity.id
     
-    # 2. Build Debug APK
-    gradle = GradleOrchestrator(project)
-    if not gradle.run_task("assembleDebug"):
-        console.print("[bold red]Build failed. Aborting run.[/bold red]")
-        sys.exit(1)
-    
-    apk_path = gradle.get_apk_path("debug")
-    
-    # 3. Device Discovery
+    # 2. Device Discovery (Fail fast if no device before building)
     adb = ADBOrchestrator()
     try:
         devices = adb.list_devices()
@@ -148,14 +162,40 @@ def run(device: str, project: str):
         console.print("[bold red]No devices found.[/bold red] Connect a device or start an emulator.")
         sys.exit(1)
     
-    target_device = device or devices[0]
-    if device and device not in devices:
-        console.print(f"[bold red]Device {device} not found.[/bold red]")
+    target_device = device
+    if not target_device:
+        if len(devices) > 1:
+            console.print(f"[yellow]Multiple devices detected. Using first one: {devices[0]}[/yellow]")
+            console.print(f"[dim]Available: {', '.join(devices)}[/dim]")
+        target_device = devices[0]
+    elif target_device not in devices:
+        console.print(f"[bold red]Device {target_device} not found.[/bold red]")
         sys.exit(1)
 
-    # 4. Install and Start
+    # 3. Build & Install via Gradle (React Native style)
+    gradle = GradleOrchestrator(project)
+    
+    # PERFORMANCE OPTIMIZATION: Detect device ABI to build ONLY what we need
+    device_abi = adb.get_device_abi(target_device)
+    console.print(f"Targeting device ABI: [bold magenta]{device_abi}[/bold magenta]")
+    
+    env = {"ANDROID_SERIAL": target_device}
+    # Industry-standard performance flags used by high-end frameworks
+    perf_args = [
+        "-Pandroid.injected.build.abi.only=true",
+        f"-Pandroid.injected.abi={device_abi}",
+        "--parallel",
+        "--configuration-cache",
+        "--build-cache"
+    ]
+    
+    console.print(f"[bold yellow]Building and installing to {target_device} ({device_abi})...[/bold yellow]")
+    if not gradle.run_task("installDebug", args=perf_args, env_overrides=env):
+        console.print("[bold red]Build/Install failed. Aborting run.[/bold red]")
+        sys.exit(1)
+    
+    # 4. Start Activity
     try:
-        adb.install_apk(target_device, apk_path)
         adb.start_activity(target_device, package_name)
         
         # 5. Telemetry
@@ -164,19 +204,36 @@ def run(device: str, project: str):
         console.print(f"[bold red]Run failed:[/bold red] {str(e)}")
         sys.exit(1)
 
+@main.command(name="android")
+@click.option("--device", "-d", help="Target device ID")
+@click.option("--project", "-p", help="Project directory")
+@click.pass_context
+def android_cmd(ctx, device: str, project: str):
+    """Alias for 'laith run'. (npm run android style)"""
+    ctx.invoke(run, device=device, project=project)
+
 @main.command()
-@click.argument("file", type=click.Path(exists=True))
+@click.argument("file", type=click.Path(exists=True), required=False)
 @click.option("--output", "-o", help="Output Kotlin file (optional if --project is used)")
 @click.option("--project", "-p", help="Target Laith project directory")
 def build(file: str, output: str, project: str):
     """Compile a Python file to Kotlin."""
+    if not file:
+        file = "src/main.py"
+        if not os.path.exists(file):
+            console.print("[bold red]Error:[/bold red] No source file specified and 'src/main.py' not found.")
+            sys.exit(1)
+
     console.print(f"Compiling [bold cyan]{file}[/bold cyan]...")
     
     # 0. Load Configuration
-    if not project:
-        config, project = ConfigManager.find_and_load(os.path.dirname(os.path.abspath(file)))
-    else:
+    if project:
+        if not os.path.exists(os.path.join(project, "laith.toml")):
+             if os.path.basename(os.path.abspath(".")) == project and os.path.exists("laith.toml"):
+                 project = "."
         config = ConfigManager.load_from_file(os.path.join(project, "laith.toml"))
+    else:
+        config, project = ConfigManager.find_and_load(os.path.dirname(os.path.abspath(file)))
 
     with open(file, "r") as f:
         source = f.read()
@@ -212,8 +269,16 @@ def build(file: str, output: str, project: str):
 
         if project:
             # Re-run generator to keep native project in sync with laith.toml
-            gen = ProjectGenerator(project, config.to_dict())
+            config_dict = config.to_dict()
+            # Ensure app_name is always valid (basename) even if project path is complex
+            config_dict["app_name"] = os.path.basename(os.path.abspath(project))
+            
+            gen = ProjectGenerator(project, config_dict)
             gen.generate()
+            
+            # Ensure Gradle Wrapper is present
+            gradle = GradleOrchestrator(project)
+            gradle.inject_wrapper()
             
             package_path = package_name.replace(".", "/")
             dest_dir = os.path.join(project, "app", "src", "main", "kotlin", package_path)
@@ -241,12 +306,6 @@ def build(file: str, output: str, project: str):
             with open(native_output, "w") as f:
                 f.write(native_code)
             
-            jni_emitter = JNIEmitter(package_name=package_name)
-            jni_code = jni_emitter.emit(module)
-            jni_output = os.path.join(native_dir, "jni_bridge.cpp")
-            with open(jni_output, "w") as f:
-                f.write(jni_code)
-            
             if project:
                 # Update CMakeLists if it exists
                 cmake_path = os.path.join(native_dir, "CMakeLists.txt")
@@ -260,7 +319,21 @@ def build(file: str, output: str, project: str):
                             f.write(cmake_content)
                 
             console.print(f"[bold green]Native code written to {native_output}[/bold green]")
-            console.print(f"[bold green]JNI bridge written to {jni_output}[/bold green]")
+
+        # Always update JNI Bridge if native is enabled, to keep it in sync with package name
+        if config.features.get("native"):
+            if project:
+                native_dir = os.path.join(project, "app", "src", "main", "cpp")
+            else:
+                native_dir = os.path.dirname(final_output) or "."
+            
+            os.makedirs(native_dir, exist_ok=True)
+            jni_emitter = JNIEmitter(package_name=package_name)
+            jni_code = jni_emitter.emit(module)
+            jni_output = os.path.join(native_dir, "jni_bridge.cpp")
+            with open(jni_output, "w") as f:
+                f.write(jni_code)
+            console.print(f"[bold green]JNI bridge updated at {jni_output}[/bold green]")
             
         console.print(f"[bold green]Success![/bold green] Output written to {final_output}")
         
