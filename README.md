@@ -2,6 +2,16 @@
 
 Python → Native Android Compiler Platform.
 
+## Why
+
+I have been doing React Native for half a year and i wanted to dive into Android and RN internals.
+After diving i wondered why we don't have a similar project for Python.
+I coded this by not following existing projects approaches. 
+
+## What Laith means
+
+Laith (ليث) means lion and is the name of my cat. Could not find a better name.
+
 ## Architecture
 
 - **Frontend**: AST-based semantic analysis and type inference.
@@ -13,16 +23,16 @@ Python → Native Android Compiler Platform.
 ## Usage
 
 ```bash
-# 1. Initialize a professional project
+# Initialize a professional project
 laith init myapp
 
-# 2. Compile the default entry point (src/main.py)
+# Compile the default entry point (src/main.py)
 laith build
 
-# 3. Build the native Android APK
+# Build the native Android APK
 laith compile
 
-# 4. The "Inner Loop": Build, Install, Run, and Stream Logs
+# The "Inner Loop": Build, Install, Run, and Stream Logs
 laith run
 ```
 
