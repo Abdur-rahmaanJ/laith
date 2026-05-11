@@ -380,11 +380,46 @@ class KotlinEmitter:
                     self._write("})")
                 else:
                     self._write(f"Slider(value = {val}, onValueChange = {{}})", inst)
+            elif inst.func_name == "Scaffold":
+                scaffold_args = []
+                kw_map = {"top_bar": "topBar", "bottom_bar": "bottomBar", "fab": "floatingActionButton"}
+                for k, v in inst.keywords.items():
+                    kw = kw_map.get(k, snake_to_camel(k))
+                    if isinstance(v, IRValue):
+                        scaffold_args.append(f"{kw} = {self._v(v)}")
+                    elif isinstance(v, IRBlock):
+                        scaffold_args.append(f"{kw} = {{ {self._v(next(iter(v.instructions), None)) if v.instructions else ''} }}")
+                body = inst.keywords.get("body", None)
+                if isinstance(body, IRBlock):
+                    self._write(f"Scaffold({', '.join(scaffold_args)}) {{", inst)
+                    self.indent_level += 1; self.visit_block(body); self.indent_level -= 1; self._write("}")
+                else:
+                    self._write(f"Scaffold({', '.join(scaffold_args)}) {{}}", inst)
+            elif inst.func_name in {"TopAppBar", "BottomAppBar", "FloatingActionButton", "NavigationBar", "NavigationBarItem"}:
+                if inst.func_name == "FloatingActionButton":
+                    self._write("FloatingActionButton(", inst)
+                else:
+                    self._write(f"{camel_func}(", inst)
+                inner = []
+                for k, v in inst.keywords.items():
+                    if isinstance(v, IRValue):
+                        inner.append(f"{snake_to_camel(k)} = {self._v(v)}")
+                self._write(", ".join(inner), inst)
+                if inst.body:
+                    self._write(") {", inst)
+                    self.indent_level += 1; self.visit_block(inst.body); self.indent_level -= 1; self._write("}")
+                else:
+                    self._write(")", inst)
             elif inst.body:
                 self._write(f"{call} {{", inst)
                 self.indent_level += 1; self.visit_block(inst.body); self.indent_level -= 1; self._write("}")
             elif inst.func_name == "Text":
                 self._write(f"Text({self._v(inst.args[0])}.toString())", inst)
+            elif inst.func_name == "Spacer":
+                self._write("Spacer(modifier = Modifier.weight(1f))", inst)
+            elif inst.func_name == "Icon":
+                icon_arg = self._v(inst.args[0]) if inst.args else "Icons.Default.Home"
+                self._write(f"Icon(imageVector = {icon_arg}, contentDescription = null)", inst)
             else:
                 self._write(call, inst)
         elif isinstance(inst, StateGet):

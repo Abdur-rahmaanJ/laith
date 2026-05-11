@@ -44,6 +44,36 @@ A Material3 slider with two-way binding.
 
 ---
 
+## Layout & Structure
+
+### `Scaffold(top_bar=..., bottom_bar=..., fab=..., body=...)`
+Standard Material3 screen structure with top bar, bottom bar, floating action button, and body content.
+- **Keywords**: `top_bar` (TopAppBar), `bottom_bar` (BottomAppBar/NavigationBar), `fab` (FloatingActionButton), `body` (content composable)
+
+### `TopAppBar()`
+A Material3 top app bar.
+
+### `BottomAppBar()`
+A Material3 bottom app bar.
+
+### `NavigationBar(*items)`
+A Material3 bottom navigation bar.
+
+### `NavigationBarItem()`
+An item inside a NavigationBar.
+
+### `FloatingActionButton(on_click: callable, *children)`
+A circular Material3 button for primary actions.
+
+### `Spacer()`
+A flexible spacer that pushes siblings apart (uses `Modifier.weight(1f)`).
+
+### `Icon(icon)`
+A Material3 icon.
+- **Example**: `Icon(Icons.Default.Home)`
+
+---
+
 ## Dynamic SDK Bridge
 
 Laith provides automatic resolution of Android SDK classes. When you use an undefined identifier, the compiler searches common Android packages and resolves it to the fully qualified class name.

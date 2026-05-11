@@ -304,7 +304,7 @@ class IRBuilder:
                 self._add_inst(ClassInit(result=res, class_name=name, args=args), node)
                 return res
             
-            ui = {"Column", "Row", "Box", "Text", "Button", "TextField", "Checkbox", "Switch", "Slider", "Image", "Icon", "Spacer"}
+            ui = {"Column", "Row", "Box", "Text", "Button", "TextField", "Checkbox", "Switch", "Slider", "Image", "Icon", "Spacer", "Scaffold", "TopAppBar", "BottomAppBar", "NavigationBar", "NavigationBarItem", "FloatingActionButton"}
             is_ui = name in ui
             args = []; imms = []; kids = []
             for a in node.args:
