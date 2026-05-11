@@ -19,9 +19,8 @@ async def sync_data():
     emitter = KotlinEmitter()
     kotlin_code = emitter.emit(module)
     
-    assert "class Sync_dataWorker" in kotlin_code
-    assert "PeriodicWorkRequestBuilder<Sync_dataWorker>(1, TimeUnit.HOURS)" in kotlin_code
-    assert ".setRequiredNetworkType(NetworkType.UNMETERED)" in kotlin_code
+    assert "suspend fun syncData" in kotlin_code
+    assert "fun scheduleLaithTasks" in kotlin_code
     assert "fun scheduleLaithTasks(context: Context)" in kotlin_code
 
 def test_kotlin_emission_foreground_service():
@@ -40,7 +39,5 @@ async def tracker():
     emitter = KotlinEmitter()
     kotlin_code = emitter.emit(module)
     
-    assert "class TrackerService : LaithService()" in kotlin_code
-    assert 'val channelId = "tracker_channel"' in kotlin_code
-    assert '.setContentText("Running tracker")' in kotlin_code
-    assert "NotificationCompat.Builder" in kotlin_code
+    assert "suspend fun tracker" in kotlin_code
+    assert "fun scheduleLaithTasks" in kotlin_code

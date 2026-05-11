@@ -14,11 +14,19 @@ class SemanticAnalyzer(ast.NodeVisitor):
         self.current_class: Optional[Symbol] = None
         self.required_permissions: Set[str] = set()
         
-        self.bridge = None
-        if sdk_path: self.bridge = BridgeManager(sdk_path)
-        elif os.environ.get("ANDROID_HOME"): self.bridge = BridgeManager(os.environ.get("ANDROID_HOME"))
+        self._sdk_path = sdk_path
+        self._bridge: Optional[BridgeManager] = None
 
         self._register_builtins()
+
+    @property
+    def bridge(self) -> Optional[BridgeManager]:
+        if self._bridge is not None:
+            return self._bridge
+        sdk = self._sdk_path or os.environ.get("ANDROID_HOME")
+        if sdk:
+            self._bridge = BridgeManager(sdk)
+        return self._bridge
 
     def _register_builtins(self):
         self.global_scope.define(Symbol("int", SymbolKind.CLASS, type=INT_TYPE))

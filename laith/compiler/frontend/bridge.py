@@ -72,7 +72,13 @@ class BridgeManager:
 
     def find_class_by_short_name(self, short_name: str) -> Optional[str]:
         """Attempt to find a fully qualified class name by its short name."""
-        print(f"DEBUG: Searching SDK for {short_name}...")
+        if short_name in self.cache:
+            entry = self.cache[short_name]
+            if isinstance(entry, dict) and "fqn" in entry:
+                return entry["fqn"]
+            return None
+        if not self.is_available():
+            return None
         common_packages = [
             "android.content",
             "android.net",
@@ -86,8 +92,9 @@ class BridgeManager:
         
         for pkg in common_packages:
             fqn = f"{pkg}.{short_name}"
-            if self.lookup_class(fqn):
-                print(f"DEBUG: Found {fqn}")
+            metadata = self.lookup_class(fqn)
+            if metadata:
+                self.cache[short_name] = {"fqn": fqn, **metadata}
                 return fqn
-        print(f"DEBUG: {short_name} not found in common SDK packages.")
+        self.cache[short_name] = {}
         return None
