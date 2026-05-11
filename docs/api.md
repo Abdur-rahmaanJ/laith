@@ -168,3 +168,15 @@ Creates an asynchronous communication channel for event-driven logic between UI 
 - **Methods**:
     - `.send(value)`: Sends a message into the channel.
     - `.collect(callback)`: Subscribes to messages.
+
+---
+
+## Lifecycle Hooks
+
+### `on_mount(callback)`
+Runs the callback when the composable enters composition (maps to `LaunchedEffect(Unit)`).
+- **Example**: `on_mount(lambda: load_data())`
+
+### `on_dispose(callback)`
+Runs the callback when the composable leaves composition (maps to `DisposableEffect` + `onDispose`).
+- **Example**: `on_dispose(lambda: cleanup())`
