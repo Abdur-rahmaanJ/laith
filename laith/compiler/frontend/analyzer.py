@@ -37,6 +37,8 @@ class SemanticAnalyzer(ast.NodeVisitor):
         self.global_scope.define(Symbol("has_permission", SymbolKind.FUNCTION, type=BOOL_TYPE))
         self.global_scope.define(Symbol("get_location", SymbolKind.FUNCTION, type=VOID_TYPE))
         self.global_scope.define(Symbol("request_location_permission", SymbolKind.FUNCTION, type=VOID_TYPE))
+        self.global_scope.define(Symbol("Navigator", SymbolKind.CLASS, type=Type("laith.Navigator")))
+        self.global_scope.define(Symbol("route", SymbolKind.FUNCTION, type=VOID_TYPE))
 
     def analyze(self, tree: ast.AST):
         self.visit(tree)

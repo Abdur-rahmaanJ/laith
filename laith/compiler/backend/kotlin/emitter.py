@@ -7,6 +7,7 @@ from laith.compiler.ir.nodes import (
     StateInit, StateGet, StateSet,
     ChannelInit, ChannelSend, ChannelCollect,
     ServiceStart, ServiceStop,
+    NavigatorPush, NavigatorPop,
     IRClass, IRField, IRMethod, ClassInit, AttributeGet, AttributeSet, MethodCall,
     Jump, Branch, IRIf, TryExcept, Raise
 )
@@ -53,7 +54,9 @@ class KotlinEmitter:
             "androidx.compose.ui.platform.LocalContext",
             "androidx.compose.foundation.layout.*",
             "androidx.compose.material3.*",
-            "androidx.compose.ui.Modifier"
+            "androidx.compose.ui.Modifier",
+            "androidx.navigation.compose.*",
+            "androidx.navigation.compose.rememberNavController",
         }
 
     def _indent(self): return "    " * self.indent_level
@@ -92,7 +95,7 @@ class KotlinEmitter:
         for func in module.functions:
             if func.name == "global_init": continue
             self.visit_function(func); self.output.append("")
-        self._emit_scheduler(module); self._emit_native_lib(module)
+        self._emit_scheduler(module); self._emit_native_lib(module); self._emit_navigator(module)
         header = [f"import {imp}" for imp in sorted(list(self.imports))]; header.append("")
         self.final_source_map = [(out_l + len(header), in_l) for out_l, in_l in self.source_map]
         return "\n".join(header + self.output)
@@ -158,6 +161,10 @@ class KotlinEmitter:
     def visit_function(self, func: IRFunction):
         is_ui = func.name in self.ui_functions
         camel_name = snake_to_camel(func.name)
+        route_decorator = next((d for d in func.decorators if d["name"] == "route"), None)
+        if route_decorator:
+            route_path = route_decorator["args"].get("path", f"/{camel_name}")
+            self._write(f"@Route(\"{route_path}\")")
         if is_ui: self._write("@Composable")
         params = []
         for a in func.args:
@@ -180,6 +187,59 @@ class KotlinEmitter:
     def _emit_scheduler(self, module: IRModule):
         self._write("fun scheduleLaithTasks(context: android.content.Context) { laith.runtime.LaithContext.current = context }")
     def _emit_native_lib(self, module: IRModule): self._write("object NativeLib { init { System.loadLibrary(\"laith-native\") } }")
+
+    def _needs_navigator(self, module: IRModule) -> bool:
+        for func in module.functions:
+            for block in func.blocks:
+                for inst in block.instructions:
+                    if isinstance(inst, (NavigatorPush, NavigatorPop)):
+                        return True
+        for cls in module.classes:
+            for method in cls.methods:
+                for block in method.blocks:
+                    for inst in block.instructions:
+                        if isinstance(inst, (NavigatorPush, NavigatorPop)):
+                            return True
+        return False
+
+    def _get_routes(self, module: IRModule) -> List[tuple[str, str]]:
+        routes = []
+        for func in module.functions:
+            route_dec = next((d for d in func.decorators if d["name"] == "route"), None)
+            if route_dec:
+                path = route_dec["args"].get("path", f"/{snake_to_camel(func.name)}")
+                routes.append((path, snake_to_camel(func.name)))
+        return routes
+
+    def _emit_navigator(self, module: IRModule):
+        if not self._needs_navigator(module):
+            return
+        routes = self._get_routes(module)
+        self._write("")
+        self._write("// Navigation infrastructure")
+        self._write("@Composable")
+        self._write("fun LaithNavHost(navController: NavHostController) {")
+        self.indent_level += 1
+        self._write("NavHost(navController = navController, startDestination = \"" + (routes[0][0] if routes else "/") + "\") {")
+        self.indent_level += 1
+        for path, func_name in routes:
+            self._write(f"composable(\"{path}\") {{ {func_name}() }}")
+        self.indent_level -= 1
+        self._write("}")
+        self.indent_level -= 1
+        self._write("}")
+        self._write("")
+        self._write("fun navigatorPush(screen: String) {")
+        self.indent_level += 1
+        self._write("// Screen push handled by NavHostController.navigate")
+        self.indent_level -= 1
+        self._write("}")
+        self._write("")
+        self._write("fun navigatorPop() {")
+        self.indent_level += 1
+        self._write("// Screen pop handled by NavHostController.popBackStack")
+        self.indent_level -= 1
+        self._write("}")
 
     def visit_top_level_instruction(self, inst: IRInstruction):
         if isinstance(inst, Constant):
@@ -298,4 +358,14 @@ class KotlinEmitter:
             self._write(f"if ({self._v(inst.condition)} as? Boolean ?: false) {{", inst); self.indent_level += 1; self.visit_block(inst.then_block); self.indent_level -= 1
             if inst.else_block: self._write("} else {"); self.indent_level += 1; self.visit_block(inst.else_block); self.indent_level -= 1
             self._write("}")
+        elif isinstance(inst, NavigatorPush):
+            screen_camel = snake_to_camel(inst.screen_func)
+            nav_args = ", ".join(f"{snake_to_camel(k)} = {self._v(v)}" for k, v in inst.kwargs.items())
+            self._write(f"navigatorPush(\"{screen_camel}\"{', ' + nav_args if nav_args else ''})", inst)
+            self.imports.add("androidx.compose.runtime.remember")
+        elif isinstance(inst, NavigatorPop):
+            if inst.result:
+                self._write(f"navigatorPop({self._v(inst.result)})", inst)
+            else:
+                self._write("navigatorPop()", inst)
         elif isinstance(inst, Raise): self._write(f"throw Exception(${self._v(inst.value)}.toString())", inst)

@@ -8,6 +8,7 @@ from laith.compiler.ir.nodes import (
     StateInit, StateGet, StateSet,
     ChannelInit, ChannelSend, ChannelCollect,
     ServiceStart, ServiceStop,
+    NavigatorPush, NavigatorPop,
     IRClass, IRField, IRMethod, ClassInit, AttributeGet, AttributeSet, MethodCall,
     Jump, Branch, IRIf, TryExcept, Raise
 )
@@ -98,6 +99,7 @@ class IRBuilder:
 
     def visit_Import(self, node: ast.Import): pass
     def visit_ImportFrom(self, node: ast.ImportFrom): pass
+    def visit_Pass(self, node: ast.Pass): pass
 
     def visit_JoinedStr(self, node: ast.JoinedStr) -> IRValue:
         if not node.values: return self.visit_expr(ast.Constant(value=""))
@@ -293,6 +295,8 @@ class IRBuilder:
                 res = IRValue(id=self._next_id(), type=STATE_TYPE)
                 self._add_inst(StateInit(result=res, initial_value=v), node)
                 return res
+            if name == "Navigator":
+                return IRValue(id="navigator", type=Type("laith.Navigator"))
             sym = self.global_scope.lookup(name)
             if sym and sym.kind == SymbolKind.CLASS and sym.type.name != "Channel":
                 args = [self.visit_expr(a) for a in node.args]
@@ -345,6 +349,31 @@ class IRBuilder:
                 v = self.visit_expr(node.args[0])
                 self._add_inst(StateSet(state_var=obj, new_value=v), node)
                 return IRValue(id="void", type=VOID_TYPE)
+            if obj.id in ("navigator", "Navigator"):
+                if node.func.attr == "push":
+                    if not node.args:
+                        raise CompileError(
+                            "Navigator.push() requires a screen function name as first argument",
+                            location=SourceLocation(line=getattr(node, 'lineno', 0), col=getattr(node, 'col_offset', 0)),
+                        )
+                    screen_func = node.args[0]
+                    if isinstance(screen_func, ast.Name):
+                        screen_name = screen_func.id
+                    else:
+                        raise CompileError(
+                            "Navigator.push() first argument must be a function name",
+                            location=SourceLocation(line=getattr(node, 'lineno', 0), col=getattr(node, 'col_offset', 0)),
+                        )
+                    kwargs = {}
+                    for kw in node.keywords:
+                        kwargs[kw.arg] = self.visit_expr(kw.value)
+                    self._add_inst(NavigatorPush(screen_func=screen_name, kwargs=kwargs), node)
+                    return IRValue(id="void", type=VOID_TYPE)
+                elif node.func.attr == "pop":
+                    result_val = self.visit_expr(node.args[0]) if node.args else None
+                    inst = NavigatorPop(result=result_val)
+                    self._add_inst(inst, node)
+                    return IRValue(id="void", type=VOID_TYPE)
             args = [self.visit_expr(a) for a in node.args]
             res = IRValue(id=self._next_id(), type=ANY_TYPE)
             self._add_inst(MethodCall(result=res, obj=obj, method_name=node.func.attr, args=args), node)
