@@ -445,13 +445,11 @@ def build(file: str, output: str, project: str):
         sys.exit(1)
 
 @main.command()
-def doctor():
-    """Check environment for dependencies."""
-    console.print("[bold yellow]Checking dependencies...[/bold yellow]")
-    # Check for uv, gradle, etc.
-    console.print("Python 3.10+: [green]OK[/green]")
-    console.print("uv: [green]OK[/green]")
-    console.print("Android SDK: [yellow]NOT FOUND (Optional for now)[/yellow]")
+@click.option("--project", "-p", help="Project directory to check")
+def doctor(project: str):
+    """Check environment for Laith development."""
+    from laith.cli.doctor import run_doctor
+    run_doctor(project or ".")
 
 if __name__ == "__main__":
     main()
