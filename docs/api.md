@@ -28,6 +28,50 @@ A Material3 button.
 
 ---
 
+## Dynamic SDK Bridge
+
+Laith provides automatic resolution of Android SDK classes. When you use an undefined identifier, the compiler searches common Android packages and resolves it to the fully qualified class name.
+
+### Auto-Resolved Classes
+
+The following Android classes are automatically resolved at compile-time:
+
+| Python Identifier | Resolved Android Class |
+|-------------------|----------------------|
+| `Intent` | `android.content.Intent` |
+| `Uri` | `android.net.Uri` |
+| `Context` | `android.content.Context` |
+| `context` | Pre-defined as `android.content.Context` (built-in variable) |
+| `Build` | `android.os.Build` |
+| `Toast` | `android.widget.Toast` |
+| `Environment` | `android.os.Environment` |
+| `BatteryManager` | `android.os.BatteryManager` |
+| `Sensor` | `android.hardware.Sensor` |
+| `SensorManager` | `android.hardware.SensorManager` |
+
+### System Intents Example
+
+```python
+from laith import Column, Text, Button
+
+def open_docs():
+    url = "https://laith.dev"
+    # Intent and Uri are auto-resolved to android.content.Intent and android.net.Uri
+    intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+    context.startActivity(intent)
+
+def main_ui():
+    Column(
+        Text("Laith Intent Lab"),
+        Text("Click the button below to open the official documentation."),
+        Button("Visit Documentation", on_click=lambda: open_docs())
+    )
+```
+
+The `context` variable is a built-in that provides access to the Activity context, enabling direct Android API calls.
+
+---
+
 ## State Management
 
 ### `state(initial_value: Any)`

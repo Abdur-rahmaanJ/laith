@@ -24,8 +24,9 @@ class KotlinEmitter:
         self.source_map: List[Tuple[int, int]] = []
         self.final_source_map: List[Tuple[int, int]] = []
         self.ui_functions: Set[str] = set()
-        # side-effects that need context but aren't UI
         self.needs_context: Set[str] = {"vibrate", "get_location", "request_location_permission"}
+        self._needs_local_context = False
+        self._has_unused_result = False
         self.imports = {
             "laith.runtime.*",
             "kotlinx.coroutines.*",
@@ -108,8 +109,12 @@ class KotlinEmitter:
         self.indent_level += 1
         if len(method.args) > 0: self.current_self_id = method.args[0].id; self._write(f"val {self._v(method.args[0])} = this")
         prev_ui = self.current_func_is_ui; self.current_func_is_ui = is_ui
-        if is_ui: self._write("val context = LocalContext.current")
-        for block in method.blocks: self.visit_block(block)
+        if is_ui:
+            self._needs_local_context = False
+            for block in method.blocks: self.visit_block(block)
+            if self._needs_local_context: self._write("val context = LocalContext.current")
+        else:
+            for block in method.blocks: self.visit_block(block)
         self.indent_level -= 1; self._write("}")
         self.current_func_is_ui = prev_ui; self.current_self_id = None
 
@@ -119,9 +124,13 @@ class KotlinEmitter:
         self._write(f"{'suspend ' if func.is_async else ''}fun {func.name}({', '.join(f'{self._v(a)}: {map_type_to_kotlin(a.type)}' for a in func.args)}): {map_type_to_kotlin(func.return_type)} {{")
         self.indent_level += 1
         prev_ui = self.current_func_is_ui; self.current_func_is_ui = is_ui
-        if is_ui: self._write("val context = LocalContext.current")
-        else: self._write("val context = laith.runtime.LaithContext.current")
-        for block in func.blocks: self.visit_block(block)
+        if is_ui:
+            self._needs_local_context = False
+            for block in func.blocks: self.visit_block(block)
+            if self._needs_local_context: self._write("val context = LocalContext.current")
+        else:
+            self._write("val context = laith.runtime.LaithContext.current")
+            for block in func.blocks: self.visit_block(block)
         self.indent_level -= 1; self._write("}")
         self.current_func_is_ui = prev_ui
 
@@ -170,19 +179,21 @@ class KotlinEmitter:
                 else: self._write(f"val {self._v(inst.result)} = {le} {op} {re}", inst)
         elif isinstance(inst, Call):
             if inst.func_name in ["get_location", "request_location_permission"]:
+                 self._needs_local_context = True
                  cb = inst.args[0] if len(inst.args) > 0 and isinstance(inst.args[0], IRBlock) else None
                  if inst.func_name == "get_location": self._write("PythonRuntime.getLastLocation(context) { lat, lon ->", inst)
                  else: self._write("PythonRuntime.requestLocationPermission(context) { granted ->", inst)
                  if cb: self.indent_level += 1; self.visit_block(cb); self.indent_level -= 1
                  self._write("}"); return
             args = ", ".join(self._v(a) if isinstance(a, IRValue) else "{}" for a in inst.args)
-            if inst.func_name == "vibrate": self._write(f"PythonRuntime.vibrate(context, ({args} as? Number)?.toLong() ?: 500L)", inst)
+            if inst.func_name == "vibrate": self._needs_local_context = True; self._write(f"PythonRuntime.vibrate(context, ({args} as? Number)?.toLong() ?: 500L)", inst)
             elif inst.result: self._write(f"val {self._v(inst.result)} = {inst.func_name}({args})", inst)
             else: self._write(f"{inst.func_name}({args})", inst)
         elif isinstance(inst, MethodCall):
             args = ", ".join(self._v(a) if isinstance(a, IRValue) else "{}" for a in inst.args)
             obj = "this" if (self.current_self_id and inst.obj.id == self.current_self_id) else self._v(inst.obj)
             safe = not self.current_func_is_ui and inst.obj.id == "context"
+            if safe: self._needs_local_context = True
             op = "?" if safe else ""
             if inst.method_name == "set":
                 v = self._v(inst.args[0])
@@ -222,9 +233,10 @@ class KotlinEmitter:
             elif inst.body:
                 self._write(f"{call} {{", inst)
                 self.indent_level += 1; self.visit_block(inst.body); self.indent_level -= 1; self._write("}")
+            elif inst.func_name == "Text":
+                self._write(f"Text({self._v(inst.args[0])}.toString())", inst)
             else:
-                 if inst.func_name == "Text": self._write(f"Text({self._v(inst.args[0])}.toString())", inst)
-                 else: self._write(call, inst)
+                self._write(call, inst)
         elif isinstance(inst, StateGet):
             obj = self._v(inst.state_var)
             if self.current_func_is_ui and not self.in_ui_lambda: self._write(f"val {self._v(inst.result)} = ({obj} as? StateFlow<Any?>)?.collectAsState()?.value ?: ({obj} as? MutableState<Any?>)?.value", inst)

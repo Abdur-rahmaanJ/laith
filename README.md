@@ -126,6 +126,27 @@ def main_ui():
 
 ```
 
+## Dynamic bridge
+
+```python
+from laith import Column, Text, Button
+
+def open_docs():
+    url = "https://compilercalchemy.com"
+    # Intent and Uri are auto-resolved to android.content.Intent and android.net.Uri
+    # see docs/api.md
+    # no import needed
+    intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+    context.startActivity(intent)
+
+def main_ui():
+    Column(
+        Text("Laith Intent Lab"),
+        Text("Click the button below to open the official documentation."),
+        Button("Visit Documentation", on_click=lambda: open_docs())
+    )
+```
+
 ## Why Laith? (Comparison)
 
 Laith represents a fundamental shift in how Python is used for mobile development. Unlike existing tools that wrap an interpreter, Laith treats Python as a high-level frontend for a native compiler.

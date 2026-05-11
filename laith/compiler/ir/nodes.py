@@ -103,7 +103,7 @@ class Call(IRInstruction):
 @dataclass(kw_only=True)
 class UICall(IRInstruction):
     func_name: str
-    args: List[IRValue]
+    args: List[IRValue] = field(default_factory=list)
     body: Optional[IRBlock] = None
     keywords: Dict[str, Union[IRValue, IRBlock]] = field(default_factory=dict)
     
