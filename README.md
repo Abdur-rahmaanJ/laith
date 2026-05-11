@@ -22,7 +22,11 @@ Laith (ليث) means lion and is the name of my cat. Could not find a better nam
 
 ## Usage
 
+- Downloading Android studio normally downloads required tools
+- Make sure Adb is installed
+
 ```bash
+# pip install laith
 # Initialize a professional project
 laith init myapp
 

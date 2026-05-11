@@ -74,6 +74,8 @@ class BridgeManager:
         """Attempt to find a fully qualified class name by its short name."""
         print(f"DEBUG: Searching SDK for {short_name}...")
         common_packages = [
+            "android.content",
+            "android.net",
             "android.hardware.camera2",
             "android.location",
             "android.os",

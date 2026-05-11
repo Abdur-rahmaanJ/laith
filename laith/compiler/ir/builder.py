@@ -23,6 +23,8 @@ class IRBuilder:
         self.value_counter = 0
         self.scope_values: List[Dict[str, IRValue]] = [{}]
         self.state_vars: List[set] = [set()]
+        # Global functions for callbacks
+        self.function_map: Dict[str, IRFunction] = {}
 
     def _next_id(self) -> str:
         id_ = str(self.value_counter)
@@ -53,6 +55,15 @@ class IRBuilder:
         return None
 
     def build(self, tree: ast.AST):
+        # Scan for functions first
+        for node in tree.body:
+             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                  sym = self.global_scope.lookup(node.name)
+                  ir_f = IRFunction(name=node.name, return_type=sym.type if sym else VOID_TYPE, args=[],
+                                    is_async=isinstance(node, ast.AsyncFunctionDef),
+                                    decorators=sym.metadata.get("decorators", []) if sym else [])
+                  self.function_map[node.name] = ir_f
+
         global_init = IRFunction(name="global_init", return_type=VOID_TYPE, args=[])
         self.module.functions.append(global_init)
         self.current_function = global_init
@@ -75,7 +86,7 @@ class IRBuilder:
         if node:
             inst.source_line = getattr(node, 'lineno', None)
             inst.source_col = getattr(node, 'col_offset', None)
-        self.current_block.add_instruction(inst)
+        if self.current_block: self.current_block.add_instruction(inst)
 
     def visit_Import(self, node: ast.Import): pass
     def visit_ImportFrom(self, node: ast.ImportFrom): pass
@@ -133,7 +144,7 @@ class IRBuilder:
 
     def _visit_func(self, node: Union[ast.FunctionDef, ast.AsyncFunctionDef], is_async: bool):
         pf, pb = self.current_function, self.current_block
-        symbol = self.global_scope.lookup(node.name)
+        ir_f = self.function_map[node.name]
         func_scope = next((s for s in self.global_scope.children if s.name == node.name), self.global_scope)
         args = []
         self._push_scope()
@@ -141,10 +152,9 @@ class IRBuilder:
             asym = func_scope.lookup(arg.arg)
             aval = IRValue(id=arg.arg, type=asym.type if asym else ANY_TYPE)
             args.append(aval); self._set_value(arg.arg, aval)
-        func = IRFunction(name=node.name, return_type=symbol.type if symbol else VOID_TYPE, args=args, is_async=is_async,
-                          decorators=symbol.metadata.get("decorators", []) if symbol else [])
-        self.module.functions.append(func); self.current_function = func
-        entry = IRBlock(label="entry"); func.blocks.append(entry); self.current_block = entry
+        ir_f.args = args
+        self.module.functions.append(ir_f); self.current_function = ir_f
+        entry = IRBlock(label="entry"); ir_f.blocks.append(entry); self.current_block = entry
         for stmt in node.body: self.visit(stmt)
         self._pop_scope(); self.current_function, self.current_block = pf, pb
 
@@ -160,20 +170,14 @@ class IRBuilder:
 
     def visit_If(self, node: ast.If):
         cond = self.visit_expr(node.test)
-        
-        # Build then block
         then_block = IRBlock(label=f"if_then_{self._next_id()}")
-        pb = self.current_block
-        self.current_block = then_block
+        pb = self.current_block; self.current_block = then_block
         for s in node.body: self.visit(s)
-        
-        # Build else block
         else_block = None
         if node.orelse:
              else_block = IRBlock(label=f"if_else_{self._next_id()}")
              self.current_block = else_block
              for s in node.orelse: self.visit(s)
-        
         self.current_block = pb
         self._add_inst(IRIf(condition=cond, then_block=then_block, else_block=else_block), node)
 
@@ -182,25 +186,17 @@ class IRBuilder:
         self._add_inst(Return(value=val), node)
 
     def visit_Try(self, node: ast.Try):
-        # 1. Build body block
         body_block = IRBlock(label=f"try_body_{self._next_id()}")
-        prev_block = self.current_block
-        self.current_block = body_block
+        prev_block = self.current_block; self.current_block = body_block
         for stmt in node.body: self.visit(stmt)
-        
-        # 2. Build handler block (Phase 12: assume one generic catch)
         handler_block = IRBlock(label=f"except_handler_{self._next_id()}")
         self.current_block = handler_block
         exc_name = None
         if node.handlers:
              handler = node.handlers[0]
              exc_name = handler.name
-             if exc_name:
-                  # Bind handler.name to a placeholder IRValue for the exception
-                  self._set_value(exc_name, IRValue(id=exc_name, type=ANY_TYPE))
+             if exc_name: self._set_value(exc_name, IRValue(id=exc_name, type=ANY_TYPE))
              for stmt in handler.body: self.visit(stmt)
-        
-        # 3. Add TryExcept instruction to parent block
         self.current_block = prev_block
         self._add_inst(TryExcept(body=body_block, handler=handler_block, exc_name=exc_name), node)
 
@@ -218,7 +214,6 @@ class IRBuilder:
             self._add_inst(StateGet(result=res, state_var=obj), node)
             return res
         res = IRValue(id=self._next_id(), type=ANY_TYPE)
-        # If accessing a known state property of LabState
         if obj.type.name in ["LabState", "AppState"]: res.type = STATE_TYPE
         self._add_inst(AttributeGet(result=res, obj=obj, attr_name=node.attr), node)
         return res
@@ -232,11 +227,33 @@ class IRBuilder:
         self._add_inst(Constant(result=res, value=node.value), node)
         return res
 
+    def visit_UnaryOp(self, node: ast.UnaryOp) -> IRValue:
+        operand = self.visit_expr(node.operand)
+        if isinstance(node.op, ast.Not):
+             res = IRValue(id=self._next_id(), type=BOOL_TYPE)
+             false_val = IRValue(id=self._next_id(), type=BOOL_TYPE)
+             self._add_inst(Constant(result=false_val, value=False), node)
+             self._add_inst(BinaryOp(result=res, op="eq", left=operand, right=false_val), node)
+             return res
+        raise NotImplementedError(f"Unary operator {node.op} not supported")
+
+    def visit_Compare(self, node: ast.Compare) -> IRValue:
+        l = self.visit_expr(node.left)
+        r = self.visit_expr(node.comparators[0])
+        op_map = {ast.Eq: "eq", ast.NotEq: "ne", ast.Lt: "lt", ast.LtE: "le", ast.Gt: "gt", ast.GtE: "ge"}
+        op = op_map[type(node.ops[0])]
+        res = IRValue(id=self._next_id(), type=BOOL_TYPE)
+        self._add_inst(BinaryOp(result=res, op=op, left=l, right=r), node)
+        return res
+
     def visit_Name(self, node: ast.Name) -> IRValue:
         val = self._get_value(node.id)
         if val is None:
+            if node.id in self.function_map: return IRValue(id=node.id, type=VOID_TYPE)
             sym = self.global_scope.lookup(node.id)
-            if sym and sym.kind == SymbolKind.CLASS: return IRValue(id=node.id, type=sym.type)
+            if sym:
+                 if sym.kind == SymbolKind.CLASS: return IRValue(id=node.id, type=sym.type)
+                 if sym.kind == SymbolKind.VARIABLE: return IRValue(id=node.id, type=sym.type)
             raise Exception(f"Undefined {node.id}")
         return val
 
@@ -244,16 +261,6 @@ class IRBuilder:
         l, r = self.visit_expr(node.left), self.visit_expr(node.right)
         op = {ast.Add: "add", ast.Sub: "sub", ast.Mult: "mul", ast.Div: "div"}[type(node.op)]
         res = IRValue(id=self._next_id(), type=l.type)
-        self._add_inst(BinaryOp(result=res, op=op, left=l, right=r), node)
-        return res
-
-    def visit_Compare(self, node: ast.Compare) -> IRValue:
-        l = self.visit_expr(node.left)
-        # We only support single comparisons for now (e.g. a == b)
-        r = self.visit_expr(node.comparators[0])
-        op_map = {ast.Eq: "eq", ast.NotEq: "ne", ast.Lt: "lt", ast.LtE: "le", ast.Gt: "gt", ast.GtE: "ge"}
-        op = op_map[type(node.ops[0])]
-        res = IRValue(id=self._next_id(), type=BOOL_TYPE)
         self._add_inst(BinaryOp(result=res, op=op, left=l, right=r), node)
         return res
 
@@ -271,31 +278,43 @@ class IRBuilder:
                 res = IRValue(id=self._next_id(), type=sym.type)
                 self._add_inst(ClassInit(result=res, class_name=name, args=args), node)
                 return res
+            
             ui = {"Column", "Row", "Box", "Text", "Button"}
-            if name in ui:
-                kids = []; imms = []
-                for a in node.args:
-                    if isinstance(a, ast.Call): kids.append(a)
-                    else: imms.append(a)
-                kws = {}
-                for kw in node.keywords:
-                    if isinstance(kw.value, ast.Lambda):
-                        self._push_scope()
-                        for la in kw.value.args.args: self._set_value(la.arg, IRValue(id=la.arg, type=ANY_TYPE))
-                        pb = self.current_block
-                        lb = IRBlock(label=f"{name}_{kw.arg}"); self.current_block = lb
-                        self.visit_expr(kw.value.body); self.current_block = pb
-                        self._pop_scope(); kws[kw.arg] = lb
-                    else: kws[kw.arg] = self.visit_expr(kw.value)
-                args = [self.visit_expr(a) for a in imms]; body = None
+            is_ui = name in ui
+            args = []; imms = []; kids = []
+            for a in node.args:
+                 if is_ui and isinstance(a, ast.Call): kids.append(a)
+                 else: imms.append(a)
+            for a in imms:
+                 if isinstance(a, ast.Lambda):
+                      self._push_scope()
+                      for la in a.args.args: self._set_value(la.arg, IRValue(id=la.arg, type=ANY_TYPE))
+                      lb = IRBlock(label=f"{name}_callback")
+                      pb_inner = self.current_block; self.current_block = lb
+                      self.visit_expr(a.body); self.current_block = pb_inner
+                      self._pop_scope(); args.append(lb)
+                 elif isinstance(a, ast.Name) and a.id in self.function_map:
+                      args.append(IRValue(id=f"fun_ref_{a.id}", type=VOID_TYPE))
+                 else: args.append(self.visit_expr(a))
+            kws = {}
+            for kw in node.keywords:
+                if isinstance(kw.value, ast.Lambda):
+                    self._push_scope()
+                    for la in kw.value.args.args: self._set_value(la.arg, IRValue(id=la.arg, type=ANY_TYPE))
+                    lb = IRBlock(label=f"{name}_{kw.arg}"); pb_kw = self.current_block
+                    self.current_block = lb
+                    self.visit_expr(kw.value.body); self.current_block = pb_kw
+                    self._pop_scope(); kws[kw.arg] = lb
+                else: kws[kw.arg] = self.visit_expr(kw.value)
+            if is_ui:
+                body = None
                 if kids:
-                    pb = self.current_block
+                    pb_body = self.current_block
                     body = IRBlock(label=f"{name}_body"); self.current_block = body
                     for k in kids: self.visit_expr(k)
-                    self.current_block = pb
+                    self.current_block = pb_body
                 self._add_inst(UICall(func_name=name, args=args, body=body, keywords=kws), node)
                 return IRValue(id="void", type=VOID_TYPE)
-            args = [self.visit_expr(a) for a in node.args]
             res = IRValue(id=self._next_id(), type=ANY_TYPE)
             self._add_inst(Call(result=res, func_name=name, args=args), node)
             return res

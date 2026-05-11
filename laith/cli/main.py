@@ -176,7 +176,17 @@ def run(ctx, device: str, project: str):
         console.print(f"[bold red]Device {target_device} not found.[/bold red]")
         sys.exit(1)
 
-    # 3. Build & Install via Gradle (React Native style)
+    # 3. Build Kotlin code first
+    console.print("[bold yellow]Compiling Python to Kotlin...[/bold yellow]")
+    src_dir = os.path.join(project, "src")
+    if os.path.exists(os.path.join(src_dir, "main.py")):
+        try:
+            ctx.invoke(build, file=os.path.join(src_dir, "main.py"), project=project)
+        except Exception as e:
+            console.print(f"[bold red]Build failed:[/bold red] {str(e)}")
+            sys.exit(1)
+
+    # 4. Build & Install via Gradle (React Native style)
     gradle = GradleOrchestrator(project)
     
     # PERFORMANCE OPTIMIZATION: Detect device ABI to build ONLY what we need
@@ -198,11 +208,11 @@ def run(ctx, device: str, project: str):
         console.print("[bold red]Build/Install failed. Aborting run.[/bold red]")
         sys.exit(1)
     
-    # 4. Start Activity
+    # 5. Start Activity
     try:
         adb.start_activity(target_device, package_name)
         
-        # 5. Telemetry
+        # 6. Telemetry
         adb.stream_logs(target_device, package_name, project_path=project)
     except Exception as e:
         console.print(f"[bold red]Run failed:[/bold red] {str(e)}")

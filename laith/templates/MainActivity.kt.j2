@@ -10,10 +10,25 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import laith.runtime.PythonRuntime
 
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.result.ActivityResultLauncher
+
 class MainActivity : ComponentActivity() {
+    companion object {
+        var locationPermissionLauncher: ActivityResultLauncher<Array<String>>? = null
+        var onPermissionResult: ((Boolean) -> Unit)? = null
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         
+        locationPermissionLauncher = registerForActivityResult(
+            ActivityResultContracts.RequestMultiplePermissions()
+        ) { permissions ->
+            val granted = permissions.entries.all { it.value }
+            onPermissionResult?.invoke(granted)
+        }
+
         PythonRuntime.initialize()
         
         // Schedule periodic tasks (WorkManager)

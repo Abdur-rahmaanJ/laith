@@ -34,6 +34,9 @@ class SemanticAnalyzer(ast.NodeVisitor):
         self.global_scope.define(Symbol("native", SymbolKind.FUNCTION, type=VOID_TYPE))
         self.global_scope.define(Symbol("context", SymbolKind.VARIABLE, type=Type("android.content.Context")))
         self.global_scope.define(Symbol("vibrate", SymbolKind.FUNCTION, type=VOID_TYPE))
+        self.global_scope.define(Symbol("has_permission", SymbolKind.FUNCTION, type=BOOL_TYPE))
+        self.global_scope.define(Symbol("get_location", SymbolKind.FUNCTION, type=VOID_TYPE))
+        self.global_scope.define(Symbol("request_location_permission", SymbolKind.FUNCTION, type=VOID_TYPE))
 
     def analyze(self, tree: ast.AST):
         self.visit(tree)
@@ -45,6 +48,9 @@ class SemanticAnalyzer(ast.NodeVisitor):
         if isinstance(node.func, ast.Name):
             if node.func.id == "vibrate":
                 self.required_permissions.add("android.permission.VIBRATE")
+            elif node.func.id in ["get_location", "request_location_permission"]:
+                self.required_permissions.add("android.permission.ACCESS_FINE_LOCATION")
+                self.required_permissions.add("android.permission.ACCESS_COARSE_LOCATION")
         self.visit(node.func)
         self.generic_visit(node)
 
