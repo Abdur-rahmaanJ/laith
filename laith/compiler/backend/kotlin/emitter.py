@@ -12,6 +12,23 @@ from laith.compiler.ir.nodes import (
 )
 from laith.compiler.backend.kotlin.mapping import map_type_to_kotlin
 
+def snake_to_camel(name: str) -> str:
+    parts = name.split("_")
+    return parts[0] + "".join(p.capitalize() for p in parts[1:])
+
+def readable_name(val_id: str, name_registry: Dict[str, str]) -> str:
+    if val_id.startswith("fun_ref_"):
+        return val_id.replace("fun_ref_", "")
+    if val_id in name_registry:
+        return name_registry[val_id]
+    if val_id == "context":
+        return "context"
+    if val_id in {"void", "self"}:
+        return val_id
+    if val_id[0].isupper() and val_id not in name_registry:
+        return val_id
+    return f"v_{val_id}"
+
 class KotlinEmitter:
     def __init__(self):
         self.output = []
@@ -27,6 +44,7 @@ class KotlinEmitter:
         self.needs_context: Set[str] = {"vibrate", "get_location", "request_location_permission"}
         self._needs_local_context = False
         self._has_unused_result = False
+        self.name_registry: Dict[str, str] = {}
         self.imports = {
             "laith.runtime.*",
             "kotlinx.coroutines.*",
@@ -40,8 +58,21 @@ class KotlinEmitter:
 
     def _indent(self): return "    " * self.indent_level
     def _write(self, text: str, inst: Optional[IRInstruction] = None):
-        self.output.append(f"{self._indent()}{text}")
-        if inst and inst.source_line: self.source_map.append((len(self.output), inst.source_line))
+        line = f"{self._indent()}{text}"
+        if inst and inst.source_line:
+            line = f"{line} // from Python line {inst.source_line}"
+        self.output.append(line)
+        if inst and inst.source_line:
+            self.source_map.append((len(self.output), inst.source_line))
+
+    def _register_name(self, val: IRValue, hint: Optional[str] = None):
+        if val.id not in self.name_registry and val.id != self.current_self_id:
+            if hint:
+                self.name_registry[val.id] = hint
+            elif val.id in {"True", "False", "None", "void", "context", "self"}:
+                self.name_registry[val.id] = val.id
+            else:
+                self.name_registry[val.id] = f"v_{val.id}"
 
     def emit(self, module: IRModule) -> str:
         self.native_func_names = {f.name for f in module.functions if any(d["name"] == "native" for d in f.decorators)}
@@ -104,8 +135,14 @@ class KotlinEmitter:
 
     def visit_method(self, method: IRMethod):
         is_ui = f"{self.current_class_name}.{method.name}" in self.ui_functions
+        camel_name = snake_to_camel(method.name)
         if is_ui: self._write("@Composable")
-        self._write(f"{'suspend ' if method.is_async else ''}fun {method.name}({', '.join(f'{self._v(a)}: {map_type_to_kotlin(a.type)}' for a in method.args[1:])}): {map_type_to_kotlin(method.return_type)} {{")
+        params = []
+        for a in method.args[1:]:
+            self._register_name(a, a.id)
+            params.append(f"{self._v(a)}: {map_type_to_kotlin(a.type)}")
+        comment = f" // from Python: {method.name}" if method.name != camel_name else ""
+        self._write(f"{'suspend ' if method.is_async else ''}fun {camel_name}({', '.join(params)}): {map_type_to_kotlin(method.return_type)} {{{comment}")
         self.indent_level += 1
         if len(method.args) > 0: self.current_self_id = method.args[0].id; self._write(f"val {self._v(method.args[0])} = this")
         prev_ui = self.current_func_is_ui; self.current_func_is_ui = is_ui
@@ -120,8 +157,14 @@ class KotlinEmitter:
 
     def visit_function(self, func: IRFunction):
         is_ui = func.name in self.ui_functions
+        camel_name = snake_to_camel(func.name)
         if is_ui: self._write("@Composable")
-        self._write(f"{'suspend ' if func.is_async else ''}fun {func.name}({', '.join(f'{self._v(a)}: {map_type_to_kotlin(a.type)}' for a in func.args)}): {map_type_to_kotlin(func.return_type)} {{")
+        params = []
+        for a in func.args:
+            self._register_name(a, a.id)
+            params.append(f"{self._v(a)}: {map_type_to_kotlin(a.type)}")
+        comment = f" // from Python: {func.name}" if func.name != camel_name else ""
+        self._write(f"{'suspend ' if func.is_async else ''}fun {camel_name}({', '.join(params)}): {map_type_to_kotlin(func.return_type)} {{{comment}")
         self.indent_level += 1
         prev_ui = self.current_func_is_ui; self.current_func_is_ui = is_ui
         if is_ui:
@@ -152,11 +195,7 @@ class KotlinEmitter:
             self.imports.add("kotlinx.coroutines.flow.MutableStateFlow")
 
     def _v(self, val: IRValue) -> str:
-        if val.id.startswith("fun_ref_"): return val.id.replace("fun_ref_", "")
-        if val.id == "context": return "context"
-        if "." in val.type.name and val.id == val.type.name.split(".")[-1]: return val.type.name
-        if val.id[0].isupper() and val.id not in ["AppState", "LabState", "Lab", "App", "self"]: return val.id
-        return f"v_{val.id}"
+        return readable_name(val.id, self.name_registry)
 
     def visit_block(self, block: IRBlock):
         for inst in block.instructions: self.visit_instruction(inst)
@@ -186,9 +225,10 @@ class KotlinEmitter:
                  if cb: self.indent_level += 1; self.visit_block(cb); self.indent_level -= 1
                  self._write("}"); return
             args = ", ".join(self._v(a) if isinstance(a, IRValue) else "{}" for a in inst.args)
+            camel_func = snake_to_camel(inst.func_name)
             if inst.func_name == "vibrate": self._needs_local_context = True; self._write(f"PythonRuntime.vibrate(context, ({args} as? Number)?.toLong() ?: 500L)", inst)
-            elif inst.result: self._write(f"val {self._v(inst.result)} = {inst.func_name}({args})", inst)
-            else: self._write(f"{inst.func_name}({args})", inst)
+            elif inst.result: self._write(f"val {self._v(inst.result)} = {camel_func}({args})", inst)
+            else: self._write(f"{camel_func}({args})", inst)
         elif isinstance(inst, MethodCall):
             args = ", ".join(self._v(a) if isinstance(a, IRValue) else "{}" for a in inst.args)
             obj = "this" if (self.current_self_id and inst.obj.id == self.current_self_id) else self._v(inst.obj)
@@ -222,8 +262,11 @@ class KotlinEmitter:
             if inst.func_name == "Button" and inst.args: pass
             else: args = [self._v(a) for a in inst.args]
             for k, v in inst.keywords.items():
-                if not isinstance(v, IRBlock): args.append(f"{k.replace('_', '') if k != 'on_click' else 'onClick'} = {self._v(v)}")
-            call = f"{inst.func_name}({', '.join(args)})"
+                if not isinstance(v, IRBlock):
+                    kw = "onClick" if k == "on_click" else snake_to_camel(k)
+                    args.append(f"{kw} = {self._v(v)}")
+            camel_func = snake_to_camel(inst.func_name)
+            call = f"{camel_func}({', '.join(args)})"
             has_click = any(isinstance(v, IRBlock) for v in inst.keywords.values())
             if inst.func_name == "Button" and has_click:
                 self._write(f"Button(onClick = {{", inst)
