@@ -1,5 +1,6 @@
 import ast
 from typing import Dict, List, Optional, Union
+from laith.compiler.errors import CompileError, SourceLocation, UnsupportedFeatureError, UndefinedSymbolError
 from laith.compiler.frontend.symbols import Scope, Symbol, SymbolKind, Type, ANY_TYPE, VOID_TYPE, STR_TYPE, BOOL_TYPE, INT_TYPE
 from laith.compiler.ir.nodes import (
     IRModule, IRFunction, IRBlock, IRInstruction, IRValue,
@@ -80,7 +81,14 @@ class IRBuilder:
         return visitor(node)
 
     def generic_visit(self, node: ast.AST):
-        raise NotImplementedError(f"No visitor for {node.__class__.__name__}")
+        loc = SourceLocation(
+            line=getattr(node, 'lineno', 0),
+            col=getattr(node, 'col_offset', 0),
+        )
+        raise UnsupportedFeatureError(
+            f"No IR builder visitor for {node.__class__.__name__}",
+            location=loc,
+        )
 
     def _add_inst(self, inst: IRInstruction, node: Optional[ast.AST] = None):
         if node:
@@ -235,7 +243,11 @@ class IRBuilder:
              self._add_inst(Constant(result=false_val, value=False), node)
              self._add_inst(BinaryOp(result=res, op="eq", left=operand, right=false_val), node)
              return res
-        raise NotImplementedError(f"Unary operator {node.op} not supported")
+        loc = SourceLocation(
+            line=getattr(node, 'lineno', 0),
+            col=getattr(node, 'col_offset', 0),
+        )
+        raise UnsupportedFeatureError(f"Unary operator {type(node.op).__name__}", location=loc)
 
     def visit_Compare(self, node: ast.Compare) -> IRValue:
         l = self.visit_expr(node.left)
@@ -254,7 +266,16 @@ class IRBuilder:
             if sym:
                  if sym.kind == SymbolKind.CLASS: return IRValue(id=node.id, type=sym.type)
                  if sym.kind == SymbolKind.VARIABLE: return IRValue(id=node.id, type=sym.type)
-            raise Exception(f"Undefined {node.id}")
+            if node.id in {"True", "False", "None"}:
+                t = BOOL_TYPE if node.id in {"True", "False"} else ANY_TYPE
+                res = IRValue(id=self._next_id(), type=t)
+                self._add_inst(Constant(result=res, value=node.id == "True"), node)
+                return res
+            loc = SourceLocation(
+                line=getattr(node, 'lineno', 0),
+                col=getattr(node, 'col_offset', 0),
+            )
+            raise UndefinedSymbolError(node.id, location=loc)
         return val
 
     def visit_BinOp(self, node: ast.BinOp) -> IRValue:
@@ -328,9 +349,18 @@ class IRBuilder:
             res = IRValue(id=self._next_id(), type=ANY_TYPE)
             self._add_inst(MethodCall(result=res, obj=obj, method_name=node.func.attr, args=args), node)
             return res
-        raise NotImplementedError(f"No visitor for {node.__class__.__name__}")
+        loc = SourceLocation(
+            line=getattr(node, 'lineno', 0),
+            col=getattr(node, 'col_offset', 0),
+        )
+        raise UnsupportedFeatureError(f"Call with function type {type(node.func).__name__}", location=loc)
 
     def visit_expr(self, node: ast.AST) -> IRValue:
         res = self.visit(node)
-        if res is None: raise Exception(f"No IRValue for {node}")
+        if res is None:
+            loc = SourceLocation(
+                line=getattr(node, 'lineno', 0),
+                col=getattr(node, 'col_offset', 0),
+            )
+            raise CompileError(f"Expression did not produce a value", location=loc)
         return res

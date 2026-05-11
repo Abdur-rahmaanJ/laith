@@ -3,6 +3,7 @@ from rich.console import Console
 from rich.panel import Panel
 import os
 import sys
+from laith.compiler.errors import CompileError
 from laith.compiler.frontend.analyzer import SemanticAnalyzer, Parser
 from laith.compiler.ir.builder import IRBuilder
 from laith.compiler.backend.kotlin.emitter import KotlinEmitter
@@ -422,6 +423,21 @@ def build(file: str, output: str, project: str):
             
         console.print(f"[bold green]Success![/bold green] Output written to {final_output}")
         
+    except CompileError as e:
+        console.print(f"[bold red]Compilation Error:[/bold red] {e.message}")
+        if e.location:
+            loc = e.location
+            lines = source.split("\n")
+            start = max(0, loc.line - 3)
+            end = min(len(lines), loc.line + 2)
+            for i in range(start, end):
+                marker = ">" if i == loc.line - 1 else " "
+                console.print(f"  {marker} {i+1:4d} | {lines[i]}")
+                if i == loc.line - 1:
+                    console.print(f"       {' ' * loc.col}^")
+        if e.hint:
+            console.print(f"[yellow]Hint:[/yellow] {e.hint}")
+        sys.exit(1)
     except Exception as e:
         console.print(f"[bold red]Error:[/bold red] {str(e)}")
         import traceback
