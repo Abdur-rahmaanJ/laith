@@ -26,6 +26,22 @@ Renders a text label.
 A Material3 button.
 - **Example**: `Button("Click Me", on_click=lambda: print("Clicked"))`
 
+### `TextField(value: state, on_value_change: callable, label: str = "")`
+An outlined text input field with two-way binding.
+- **Example**: `TextField(value=text_state, on_value_change=text_state.set, label="Name")`
+
+### `Checkbox(checked: state, on_checked_change: callable)`
+A Material3 checkbox with two-way binding.
+- **Example**: `Checkbox(checked=agreed_state, on_checked_change=agreed_state.set)`
+
+### `Switch(checked: state, on_checked_change: callable)`
+A Material3 toggle switch with two-way binding.
+- **Example**: `Switch(checked=enabled_state, on_checked_change=enabled_state.set)`
+
+### `Slider(value: state, on_value_change: callable)`
+A Material3 slider with two-way binding.
+- **Example**: `Slider(value=volume_state, on_value_change=volume_state.set)`
+
 ---
 
 ## Dynamic SDK Bridge

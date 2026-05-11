@@ -319,20 +319,67 @@ class KotlinEmitter:
             else: self._write(f"val {self._v(inst.result)} = MutableStateFlow<Any?>({v})", inst)
         elif isinstance(inst, UICall):
             args = []
-            if inst.func_name == "Button" and inst.args: pass
-            else: args = [self._v(a) for a in inst.args]
+            pass_args = inst.func_name not in {"Button", "TextField", "Checkbox", "Switch", "Slider"}
+            if pass_args: args = [self._v(a) for a in inst.args]
+            has_callback = False
             for k, v in inst.keywords.items():
-                if not isinstance(v, IRBlock):
+                if isinstance(v, IRBlock):
+                    has_callback = True
+                else:
                     kw = "onClick" if k == "on_click" else snake_to_camel(k)
                     args.append(f"{kw} = {self._v(v)}")
             camel_func = snake_to_camel(inst.func_name)
             call = f"{camel_func}({', '.join(args)})"
-            has_click = any(isinstance(v, IRBlock) for v in inst.keywords.values())
-            if inst.func_name == "Button" and has_click:
-                self._write(f"Button(onClick = {{", inst)
-                self.indent_level += 1; prev = self.in_ui_lambda; self.in_ui_lambda = True
-                self.visit_block(inst.keywords[next(k for k, v in inst.keywords.items() if isinstance(v, IRBlock))]); self.indent_level -= 1; self.in_ui_lambda = prev
-                self._write("}) {"); self.indent_level += 1; self._write(f"Text({self._v(inst.args[0])}.toString())"); self.indent_level -= 1; self._write("}")
+
+            if inst.func_name == "Button":
+                click_block = next((v for k, v in inst.keywords.items() if isinstance(v, IRBlock)), None)
+                self._write("Button(onClick = {", inst)
+                if click_block:
+                    self.indent_level += 1; prev = self.in_ui_lambda; self.in_ui_lambda = True
+                    self.visit_block(click_block); self.indent_level -= 1; self.in_ui_lambda = prev
+                self._write("}) {"); self.indent_level += 1
+                if inst.args: self._write(f"Text({self._v(inst.args[0])}.toString())")
+                self.indent_level -= 1; self._write("}")
+            elif inst.func_name == "TextField":
+                val = next((self._v(v) for k, v in inst.keywords.items() if k == "value"), "null")
+                change_block = inst.keywords.get("on_value_change", None)
+                if isinstance(change_block, IRBlock):
+                    self._write(f"OutlinedTextField(value = {val}, onValueChange = {{ newVal ->", inst)
+                    self.indent_level += 1; prev = self.in_ui_lambda; self.in_ui_lambda = True
+                    self.visit_block(change_block); self.indent_level -= 1; self.in_ui_lambda = prev
+                    self._write("})")
+                else:
+                    self._write(f"OutlinedTextField(value = {val}, onValueChange = {{}})", inst)
+            elif inst.func_name == "Checkbox":
+                checked = next((self._v(v) for k, v in inst.keywords.items() if k == "checked"), "false")
+                change_block = inst.keywords.get("on_checked_change", None)
+                if isinstance(change_block, IRBlock):
+                    self._write(f"Checkbox(checked = {checked}, onCheckedChange = {{ newVal ->", inst)
+                    self.indent_level += 1; prev = self.in_ui_lambda; self.in_ui_lambda = True
+                    self.visit_block(change_block); self.indent_level -= 1; self.in_ui_lambda = prev
+                    self._write("})")
+                else:
+                    self._write(f"Checkbox(checked = {checked}, onCheckedChange = null)", inst)
+            elif inst.func_name == "Switch":
+                checked = next((self._v(v) for k, v in inst.keywords.items() if k == "checked"), "false")
+                change_block = inst.keywords.get("on_checked_change", None)
+                if isinstance(change_block, IRBlock):
+                    self._write(f"Switch(checked = {checked}, onCheckedChange = {{ newVal ->", inst)
+                    self.indent_level += 1; prev = self.in_ui_lambda; self.in_ui_lambda = True
+                    self.visit_block(change_block); self.indent_level -= 1; self.in_ui_lambda = prev
+                    self._write("})")
+                else:
+                    self._write(f"Switch(checked = {checked}, onCheckedChange = null)", inst)
+            elif inst.func_name == "Slider":
+                val = next((self._v(v) for k, v in inst.keywords.items() if k == "value"), "0f")
+                change_block = inst.keywords.get("on_value_change", None)
+                if isinstance(change_block, IRBlock):
+                    self._write(f"Slider(value = {val}, onValueChange = {{ newVal ->", inst)
+                    self.indent_level += 1; prev = self.in_ui_lambda; self.in_ui_lambda = True
+                    self.visit_block(change_block); self.indent_level -= 1; self.in_ui_lambda = prev
+                    self._write("})")
+                else:
+                    self._write(f"Slider(value = {val}, onValueChange = {{}})", inst)
             elif inst.body:
                 self._write(f"{call} {{", inst)
                 self.indent_level += 1; self.visit_block(inst.body); self.indent_level -= 1; self._write("}")
