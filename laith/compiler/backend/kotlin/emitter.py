@@ -314,6 +314,43 @@ class KotlinEmitter:
                 self.indent_level += 1
                 if cb: self._write("onDispose {"); self.indent_level += 1; self.visit_block(cb); self.indent_level -= 1; self._write("}")
                 self.indent_level -= 1; self._write("}"); return
+            if inst.func_name == "on_resume":
+                cb = inst.args[0] if inst.args and isinstance(inst.args[0], IRBlock) else None
+                self.imports.add("androidx.compose.runtime.LaunchedEffect")
+                self.imports.add("androidx.lifecycle.Lifecycle")
+                self.imports.add("androidx.lifecycle.LifecycleEventObserver")
+                self.imports.add("androidx.lifecycle.compose.LocalLifecycleOwner")
+                self._write("val lifecycleOwner = LocalLifecycleOwner.current", inst)
+                self._write("DisposableEffect(lifecycleOwner) {", inst)
+                self.indent_level += 1
+                self._write("val observer = LifecycleEventObserver { _, event ->")
+                self.indent_level += 1
+                self._write("if (event == Lifecycle.Event.ON_RESUME) {")
+                if cb: self.indent_level += 1; self.visit_block(cb); self.indent_level -= 1
+                self._write("}")
+                self.indent_level -= 1
+                self._write("}")
+                self._write("lifecycleOwner.lifecycle.addObserver(observer)")
+                self._write("onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }")
+                self.indent_level -= 1; self._write("}"); return
+            if inst.func_name == "on_pause":
+                cb = inst.args[0] if inst.args and isinstance(inst.args[0], IRBlock) else None
+                self.imports.add("androidx.lifecycle.Lifecycle")
+                self.imports.add("androidx.lifecycle.LifecycleEventObserver")
+                self.imports.add("androidx.lifecycle.compose.LocalLifecycleOwner")
+                self._write("val lifecycleOwner = LocalLifecycleOwner.current", inst)
+                self._write("DisposableEffect(lifecycleOwner) {", inst)
+                self.indent_level += 1
+                self._write("val observer = LifecycleEventObserver { _, event ->")
+                self.indent_level += 1
+                self._write("if (event == Lifecycle.Event.ON_PAUSE) {")
+                if cb: self.indent_level += 1; self.visit_block(cb); self.indent_level -= 1
+                self._write("}")
+                self.indent_level -= 1
+                self._write("}")
+                self._write("lifecycleOwner.lifecycle.addObserver(observer)")
+                self._write("onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }")
+                self.indent_level -= 1; self._write("}"); return
             args = ", ".join(self._v(a) if isinstance(a, IRValue) else "{}" for a in inst.args)
             camel_func = snake_to_camel(inst.func_name)
             if inst.func_name == "vibrate": self._needs_local_context = True; self._write(f"PythonRuntime.vibrate(context, ({args} as? Number)?.toLong() ?: 500L)", inst)
