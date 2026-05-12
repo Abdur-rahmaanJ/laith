@@ -408,6 +408,48 @@ class KotlinEmitter:
                     self.indent_level += 1; self.visit_block(body); self.indent_level -= 1; self._write("}")
                 else:
                     self._write(f"Scaffold({', '.join(scaffold_args)}) {{}}", inst)
+            elif inst.func_name == "Dialog":
+                on_dismiss = inst.keywords.get("on_dismiss", None)
+                has_dismiss = isinstance(on_dismiss, IRBlock)
+                self._write("Dialog(onDismissRequest = {", inst)
+                if has_dismiss:
+                    self.indent_level += 1; prev = self.in_ui_lambda; self.in_ui_lambda = True
+                    self.visit_block(on_dismiss); self.indent_level -= 1; self.in_ui_lambda = prev
+                self._write("}) {")
+                if inst.body:
+                    self.indent_level += 1; self.visit_block(inst.body); self.indent_level -= 1
+                self._write("}")
+                self.imports.add("androidx.compose.ui.window.Dialog")
+            elif inst.func_name == "AlertDialog":
+                on_confirm = inst.keywords.get("on_confirm", None)
+                on_dismiss = inst.keywords.get("on_dismiss", None)
+                title_val = next((self._v(v) for k, v in inst.keywords.items() if k == "title"), "null")
+                text_val = next((self._v(v) for k, v in inst.keywords.items() if k == "text"), "null")
+                self._write(f"AlertDialog(onDismissRequest = {{", inst)
+                if isinstance(on_dismiss, IRBlock):
+                    self.indent_level += 1; self.visit_block(on_dismiss); self.indent_level -= 1
+                self._write(f"}}, title = {{ Text({title_val}) }}, text = {{ Text({text_val}) }}", inst)
+                if isinstance(on_confirm, IRBlock):
+                    self._write(", confirmButton = { Button(onClick = {", inst)
+                    self.indent_level += 1; self.visit_block(on_confirm); self.indent_level -= 1
+                    self._write("}) { Text(\"OK\") } }")
+                self._write(")")
+                self.imports.add("androidx.compose.material3.AlertDialog")
+            elif inst.func_name == "Snackbar":
+                msg = self._v(inst.args[0]) if inst.args else "null"
+                self._write(f"Snackbar({{ Text({msg}.toString()) }})", inst)
+            elif inst.func_name == "ModalBottomSheet":
+                on_dismiss = inst.keywords.get("on_dismiss", None)
+                has_dismiss = isinstance(on_dismiss, IRBlock)
+                self._write("ModalBottomSheet(onDismissRequest = {", inst)
+                if has_dismiss:
+                    self.indent_level += 1; prev = self.in_ui_lambda; self.in_ui_lambda = True
+                    self.visit_block(on_dismiss); self.indent_level -= 1; self.in_ui_lambda = prev
+                self._write("}) {")
+                if inst.body:
+                    self.indent_level += 1; self.visit_block(inst.body); self.indent_level -= 1
+                self._write("}")
+                self.imports.add("androidx.compose.material3.ModalBottomSheet")
             elif inst.func_name in {"TopAppBar", "BottomAppBar", "FloatingActionButton", "NavigationBar", "NavigationBarItem"}:
                 if inst.func_name == "FloatingActionButton":
                     self._write("FloatingActionButton(", inst)
