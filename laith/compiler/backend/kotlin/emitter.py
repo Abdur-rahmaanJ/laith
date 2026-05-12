@@ -320,20 +320,39 @@ class KotlinEmitter:
             elif inst.result: self._write(f"val {self._v(inst.result)} = {camel_func}({args})", inst)
             else: self._write(f"{camel_func}({args})", inst)
         elif isinstance(inst, MethodCall):
-            args = ", ".join(self._v(a) if isinstance(a, IRValue) else "{}" for a in inst.args)
+            args_str = ", ".join(self._v(a) if isinstance(a, IRValue) else "{}" for a in inst.args)
             obj = "this" if (self.current_self_id and inst.obj.id == self.current_self_id) else self._v(inst.obj)
             safe = not self.current_func_is_ui and inst.obj.id == "context"
             if safe: self._needs_local_context = True
             op = "?" if safe else ""
-            if inst.method_name == "set":
+            if inst.obj.type.name == "laith.Preferences" or inst.obj.type.name == "Preferences":
+                key = self._v(inst.args[0]) if inst.args else "null"
+                if inst.method_name == "get":
+                    default = self._v(inst.args[1]) if len(inst.args) > 1 else "null"
+                    self._write(f"val {self._v(inst.result)} = {obj}.getString({key}, {default}) ?: {default}", inst)
+                elif inst.method_name == "set":
+                    val = self._v(inst.args[1]) if len(inst.args) > 1 else "null"
+                    self._write(f"{obj}.edit().putString({key}, {val}.toString()).apply()", inst)
+                elif inst.method_name == "remove":
+                    self._write(f"{obj}.edit().remove({key}).apply()", inst)
+                elif inst.method_name == "contains":
+                    self._write(f"val {self._v(inst.result)} = {obj}.contains({key})", inst)
+                else:
+                    self._write(f"{obj}.{inst.method_name}({args_str})", inst)
+            elif inst.method_name == "set":
                 v = self._v(inst.args[0])
                 self._write(f"({obj} as? MutableStateFlow<Any?>)?.value = {v}", inst)
                 self._write(f"({obj} as? MutableState<Any?>)?.value = {v}", inst)
-            elif inst.result: self._write(f"val {self._v(inst.result)} = {obj}{op}.{inst.method_name}({args})", inst)
-            else: self._write(f"{obj}{op}.{inst.method_name}({args})", inst)
+            elif inst.result: self._write(f"val {self._v(inst.result)} = {obj}{op}.{inst.method_name}({args_str})", inst)
+            else: self._write(f"{obj}{op}.{inst.method_name}({args_str})", inst)
         elif isinstance(inst, ClassInit):
             args = ", ".join(self._v(a) for a in inst.args)
-            if "." in inst.result.type.name: 
+            if inst.class_name == "Preferences":
+                name_arg = self._v(inst.args[0]) if inst.args else '"app"'
+                self._needs_local_context = True
+                self._write(f"val {self._v(inst.result)} = context.getSharedPreferences({name_arg}, android.content.Context.MODE_PRIVATE)", inst)
+                self.imports.add("android.content.Context")
+            elif "." in inst.result.type.name: 
                  self._write(f"val {self._v(inst.result)} = {inst.result.type.name}({args})", inst)
             else: self._write(f"val {self._v(inst.result)} = {inst.class_name}().apply {{ __init__({args}) }}", inst)
         elif isinstance(inst, AttributeGet):

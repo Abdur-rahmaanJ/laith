@@ -67,6 +67,7 @@ class SemanticAnalyzer(ast.NodeVisitor):
         self.global_scope.define(Symbol("on_mount", SymbolKind.FUNCTION, type=VOID_TYPE))
         self.global_scope.define(Symbol("on_dispose", SymbolKind.FUNCTION, type=VOID_TYPE))
         self.global_scope.define(Symbol("effect", SymbolKind.FUNCTION, type=VOID_TYPE))
+        self.global_scope.define(Symbol("Preferences", SymbolKind.CLASS, type=Type("laith.Preferences")))
 
     def analyze(self, tree: ast.AST):
         self.visit(tree)
