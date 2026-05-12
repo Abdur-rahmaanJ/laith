@@ -325,7 +325,35 @@ class KotlinEmitter:
             safe = not self.current_func_is_ui and inst.obj.id == "context"
             if safe: self._needs_local_context = True
             op = "?" if safe else ""
-            if inst.obj.type.name == "laith.Preferences" or inst.obj.type.name == "Preferences":
+            if inst.obj.type.name in ("laith.FileStorage", "FileStorage"):
+                file_path = self._v(inst.args[0]) if inst.args else "null"
+                self._needs_local_context = True
+                if inst.method_name == "read_text":
+                    self._write(f"val {self._v(inst.result)} = java.io.File(context.filesDir, {file_path}).readText()", inst)
+                    self.imports.add("java.io.File")
+                elif inst.method_name == "write_bytes":
+                    data = self._v(inst.args[1]) if len(inst.args) > 1 else "null"
+                    self._write(f"java.io.File(context.filesDir, {file_path}).writeBytes({data})", inst)
+                    self.imports.add("java.io.File")
+                elif inst.method_name == "read_bytes":
+                    self._write(f"val {self._v(inst.result)} = java.io.File(context.filesDir, {file_path}).readBytes()", inst)
+                    self.imports.add("java.io.File")
+                elif inst.method_name == "write_text":
+                    data = self._v(inst.args[1]) if len(inst.args) > 1 else "null"
+                    self._write(f"java.io.File(context.filesDir, {file_path}).writeText({data})", inst)
+                    self.imports.add("java.io.File")
+                elif inst.method_name == "delete":
+                    self._write(f"java.io.File(context.filesDir, {file_path}).delete()", inst)
+                    self.imports.add("java.io.File")
+                elif inst.method_name == "exists":
+                    self._write(f"val {self._v(inst.result)} = java.io.File(context.filesDir, {file_path}).exists()", inst)
+                    self.imports.add("java.io.File")
+                elif inst.method_name in ("get_cache_dir", "get_cache_dir", "getFilesDir", "getCacheDir"):
+                    dir_type = "cacheDir" if "cache" in inst.method_name else "filesDir"
+                    self._write(f"val {self._v(inst.result)} = context.{dir_type}.absolutePath", inst)
+                else:
+                    self._write(f"{obj}.{inst.method_name}({args_str})", inst)
+            elif inst.obj.type.name == "laith.Preferences" or inst.obj.type.name == "Preferences":
                 key = self._v(inst.args[0]) if inst.args else "null"
                 if inst.method_name == "get":
                     default = self._v(inst.args[1]) if len(inst.args) > 1 else "null"
