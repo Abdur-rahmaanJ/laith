@@ -71,6 +71,7 @@ class SemanticAnalyzer(ast.NodeVisitor):
         self.global_scope.define(Symbol("FileStorage", SymbolKind.CLASS, type=Type("laith.FileStorage")))
         self.global_scope.define(Symbol("on_resume", SymbolKind.FUNCTION, type=VOID_TYPE))
         self.global_scope.define(Symbol("on_pause", SymbolKind.FUNCTION, type=VOID_TYPE))
+        self.global_scope.define(Symbol("Theme", SymbolKind.FUNCTION, type=VOID_TYPE))
 
     def analyze(self, tree: ast.AST):
         self.visit(tree)

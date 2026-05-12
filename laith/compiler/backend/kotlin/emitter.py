@@ -509,6 +509,35 @@ class KotlinEmitter:
                     self.indent_level += 1; self.visit_block(body); self.indent_level -= 1; self._write("}")
                 else:
                     self._write(f"Scaffold({', '.join(scaffold_args)}) {{}}", inst)
+            elif inst.func_name == "Theme":
+                primary = next((self._v(v) for k, v in inst.keywords.items() if k == "primary"), None)
+                dark_primary = next((self._v(v) for k, v in inst.keywords.items() if k == "dark_primary"), None)
+                use_dynamic = next((self._v(v) for k, v in inst.keywords.items() if k == "use_dynamic_colors"), None)
+                self.imports.add("androidx.compose.material3.MaterialTheme")
+                self.imports.add("androidx.compose.material3.lightColorScheme")
+                self.imports.add("androidx.compose.material3.darkColorScheme")
+                self.imports.add("androidx.compose.foundation.isSystemInDarkTheme")
+                self._write("MaterialTheme(", inst)
+                if use_dynamic:
+                    self._write(f"    colorScheme = if (isSystemInDarkTheme()) {{")
+                    self._write(f"        dynamicDarkColorScheme(LocalContext.current)")
+                    self._write(f"    }} else {{")
+                    self._write(f"        dynamicLightColorScheme(LocalContext.current)")
+                    self._write(f"    }}")
+                    self.imports.add("androidx.compose.material3.dynamicDarkColorScheme")
+                    self.imports.add("androidx.compose.material3.dynamicLightColorScheme")
+                elif primary or dark_primary:
+                    self._write(f"    colorScheme = if (isSystemInDarkTheme()) {{")
+                    dark = dark_primary or primary
+                    self._write(f"        darkColorScheme(primary = Color(0xFF{dark.replace('#', '')}))")
+                    self._write(f"    }} else {{")
+                    self._write(f"        lightColorScheme(primary = Color(0xFF{primary.replace('#', '')}))")
+                    self._write(f"    }}")
+                if inst.body:
+                    self._write(") {", inst)
+                    self.indent_level += 1; self.visit_block(inst.body); self.indent_level -= 1; self._write("}")
+                else:
+                    self._write(") { }", inst)
             elif inst.func_name == "Dialog":
                 on_dismiss = inst.keywords.get("on_dismiss", None)
                 has_dismiss = isinstance(on_dismiss, IRBlock)
