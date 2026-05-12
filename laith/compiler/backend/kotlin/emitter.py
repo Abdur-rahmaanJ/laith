@@ -284,6 +284,23 @@ class KotlinEmitter:
                  else: self._write("PythonRuntime.requestLocationPermission(context) { granted ->", inst)
                  if cb: self.indent_level += 1; self.visit_block(cb); self.indent_level -= 1
                  self._write("}"); return
+            if inst.func_name == "effect":
+                state_val = inst.args[0] if inst.args and isinstance(inst.args[0], IRValue) else None
+                cb = inst.args[1] if len(inst.args) > 1 and isinstance(inst.args[1], IRBlock) else None
+                self.imports.add("androidx.compose.runtime.LaunchedEffect")
+                self.imports.add("kotlinx.coroutines.flow.collect")
+                if state_val:
+                    key = self._v(state_val)
+                    self._write(f"val v_effectKey = {key}", inst)
+                    self._write(f"LaunchedEffect(v_effectKey) {{", inst)
+                else:
+                    self._write("LaunchedEffect(Unit) {", inst)
+                if cb:
+                    self.indent_level += 1
+                    self._write(f"val newVal = {self._v(state_val)}" if state_val else "")
+                    self.visit_block(cb)
+                    self.indent_level -= 1
+                self._write("}"); return
             if inst.func_name == "on_mount":
                 cb = inst.args[0] if inst.args and isinstance(inst.args[0], IRBlock) else None
                 self.imports.add("androidx.compose.runtime.LaunchedEffect")
