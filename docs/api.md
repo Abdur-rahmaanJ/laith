@@ -42,6 +42,23 @@ A Material3 toggle switch with two-way binding.
 A Material3 slider with two-way binding.
 - **Example**: `Slider(value=volume_state, on_value_change=volume_state.set)`
 
+### `Dialog(*children, on_dismiss: callable)`
+A modal dialog overlay.
+- **Keywords**: `on_dismiss` (callback when dialog is dismissed).
+- **Example**: `Dialog(Text("Hello"), on_dismiss=lambda: close())`
+
+### `AlertDialog(title: str, text: str, on_confirm: callable, on_dismiss: callable)`
+A Material3 alert dialog with title, body, and confirm action.
+- **Keywords**: `title`, `text`, `on_confirm`, `on_dismiss`.
+
+### `Snackbar(message: str)`
+An inline snackbar display.
+- **Example**: `Snackbar("Operation complete")`
+
+### `ModalBottomSheet(*children, on_dismiss: callable)`
+A modal bottom sheet overlay.
+- **Keywords**: `on_dismiss` (callback when sheet is dismissed).
+
 ---
 
 ## Layout & Structure
@@ -72,6 +89,50 @@ A flexible spacer that pushes siblings apart (uses `Modifier.weight(1f)`).
 A Material3 icon.
 - **Example**: `Icon(Icons.Default.Home)`
 
+### `Image(src: str)`
+An image composable.
+- **Example**: `Image("https://example.com/photo.png")`
+
+---
+
+## Navigation
+
+### `Navigator.push(screen, **params)`
+Pushes a screen onto the navigation stack.
+- `screen`: Reference to a screen function.
+- `**params`: Keyword arguments passed as navigation parameters.
+- **Example**: `Navigator.push(profile, user_id=42)`
+
+### `Navigator.pop(result=None)`
+Pops the current screen from the navigation stack, optionally returning a result.
+- **Example**: `Navigator.pop("confirmed")`
+
+### `@route(path="/screen")`
+Decorator to register a screen function with a navigation route path for deep linking.
+- **Example**: `@route(path="/profile/:id")`
+
+---
+
+## Theming
+
+### `Theme(primary: str, dark_primary: str, use_dynamic_colors: bool, body=...)`
+Wraps content in a MaterialTheme with customizable colors and dark mode support.
+- **Keywords**: 
+  - `primary` (hex color for light theme, e.g. `"#FF6200EE"`)
+  - `dark_primary` (hex color for dark theme, e.g. `"#FFBB86FC"`)
+  - `use_dynamic_colors` (Android 12+ Monet palette)
+  - `body` (content composable)
+- **Example**: 
+```python
+Theme(
+    primary="#FF6200EE",
+    dark_primary="#FFBB86FC",
+    body=Column(
+        Text("Themed Content")
+    )
+)
+```
+
 ---
 
 ## Dynamic SDK Bridge
@@ -79,8 +140,6 @@ A Material3 icon.
 Laith provides automatic resolution of Android SDK classes. When you use an undefined identifier, the compiler searches common Android packages and resolves it to the fully qualified class name.
 
 ### Auto-Resolved Classes
-
-The following Android classes are automatically resolved at compile-time:
 
 | Python Identifier | Resolved Android Class |
 |-------------------|----------------------|
@@ -102,14 +161,12 @@ from laith import Column, Text, Button
 
 def open_docs():
     url = "https://laith.dev"
-    # Intent and Uri are auto-resolved to android.content.Intent and android.net.Uri
     intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
     context.startActivity(intent)
 
 def main_ui():
     Column(
         Text("Laith Intent Lab"),
-        Text("Click the button below to open the official documentation."),
         Button("Visit Documentation", on_click=lambda: open_docs())
     )
 ```
@@ -180,3 +237,51 @@ Runs the callback when the composable enters composition (maps to `LaunchedEffec
 ### `on_dispose(callback)`
 Runs the callback when the composable leaves composition (maps to `DisposableEffect` + `onDispose`).
 - **Example**: `on_dispose(lambda: cleanup())`
+
+### `on_resume(callback)`
+Runs the callback when the screen resumes (maps to `Lifecycle.Event.ON_RESUME` observer).
+- **Example**: `on_resume(lambda: refresh_data())`
+
+### `on_pause(callback)`
+Runs the callback when the screen pauses (maps to `Lifecycle.Event.ON_PAUSE` observer).
+- **Example**: `on_pause(lambda: save_draft())`
+
+### `effect(state_var, callback)`
+Watches a state variable and calls the callback with the new value whenever it changes (maps to `LaunchedEffect` with the state as key).
+- **Example**: `effect(count, lambda old, new: print(f"Count changed from {old} to {new}"))`
+
+---
+
+## Storage & Persistence
+
+### `Preferences(name: str)`
+Creates a SharedPreferences-backed key-value store.
+- **Methods**:
+    - `get(key, default)`: Retrieves a value or returns the default.
+    - `set(key, value)`: Stores a value.
+    - `remove(key)`: Deletes a key.
+    - `contains(key)`: Checks if a key exists.
+- **Example**:
+```python
+prefs = Preferences("my_app")
+name = prefs.get("username", "guest")
+prefs.set("username", "new_name")
+```
+
+### `FileStorage`
+Static utility class for raw file I/O in the app's internal storage.
+- **Static methods**:
+    - `read_text(path)` → Reads a text file from internal storage.
+    - `write_text(path, data)` → Writes text to a file.
+    - `read_bytes(path)` → Reads binary data from a file.
+    - `write_bytes(path, data)` → Writes binary data to a file.
+    - `delete(path)` → Deletes a file.
+    - `exists(path)` → Checks if a file exists.
+    - `get_cache_dir()` → Returns the cache directory path.
+    - `get_files_dir()` → Returns the files directory path.
+- **Example**:
+```python
+content = FileStorage.read_text("notes.txt")
+FileStorage.write_bytes("backup.bin", data)
+cache = FileStorage.get_cache_dir()
+```
