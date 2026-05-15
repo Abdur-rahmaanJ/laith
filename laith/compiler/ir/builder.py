@@ -280,12 +280,22 @@ class IRBuilder:
             raise UndefinedSymbolError(node.id, location=loc)
         return val
 
-    def visit_List(self, node: ast.List) -> IRValue:
+    def visit_Await(self, node: ast.Await) -> IRValue:
+        return self.visit_expr(node.value)
+
+    def visit_Dict(self, node: ast.Dict) -> IRValue:
         res = IRValue(id=self._next_id(), type=ANY_TYPE)
-        if not node.elts:
-            self._add_inst(Call(result=res, func_name="emptyList", args=[]), node)
+        if not node.keys:
+            self._add_inst(Call(result=res, func_name="emptyMap", args=[]), node)
         else:
-            self._add_inst(Call(result=res, func_name="listOf", args=[self.visit_expr(e) for e in node.elts]), node)
+            args = []
+            for k, v in zip(node.keys, node.values):
+                key_val = self.visit_expr(k)
+                val_val = self.visit_expr(v)
+                pair = IRValue(id=self._next_id(), type=ANY_TYPE)
+                self._add_inst(Call(result=pair, func_name="pairOf", args=[key_val, val_val]), node)
+                args.append(pair)
+            self._add_inst(Call(result=res, func_name="mapOf", args=args), node)
         return res
 
     def visit_List(self, node: ast.List) -> IRValue:
@@ -313,6 +323,8 @@ class IRBuilder:
                 return res
             if name == "Navigator":
                 return IRValue(id="navigator", type=Type("laith.Navigator"))
+            if name == "http":
+                return IRValue(id="httpClient", type=Type("laith.HttpClient"))
             sym = self.global_scope.lookup(name)
             if sym and sym.kind == SymbolKind.CLASS and sym.type.name != "Channel":
                 args = [self.visit_expr(a) for a in node.args]
@@ -391,8 +403,23 @@ class IRBuilder:
                     self._add_inst(inst, node)
                     return IRValue(id="void", type=VOID_TYPE)
             args = [self.visit_expr(a) for a in node.args]
+            kwargs = {}
+            for kw in node.keywords:
+                if isinstance(kw.value, ast.Lambda):
+                    self._push_scope()
+                    for la in kw.value.args.args:
+                        self._set_value(la.arg, IRValue(id=la.arg, type=ANY_TYPE))
+                    lb = IRBlock(label=f"{node.func.attr}_{kw.arg}")
+                    pb_kw = self.current_block
+                    self.current_block = lb
+                    self.visit_expr(kw.value.body)
+                    self.current_block = pb_kw
+                    self._pop_scope()
+                    kwargs[kw.arg] = lb
+                else:
+                    kwargs[kw.arg] = self.visit_expr(kw.value)
             res = IRValue(id=self._next_id(), type=ANY_TYPE)
-            self._add_inst(MethodCall(result=res, obj=obj, method_name=node.func.attr, args=args), node)
+            self._add_inst(MethodCall(result=res, obj=obj, method_name=node.func.attr, args=args, keywords=kwargs), node)
             return res
         loc = SourceLocation(
             line=getattr(node, 'lineno', 0),

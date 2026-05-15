@@ -95,7 +95,7 @@ class KotlinEmitter:
         for func in module.functions:
             if func.name == "global_init": continue
             self.visit_function(func); self.output.append("")
-        self._emit_scheduler(module); self._emit_native_lib(module); self._emit_navigator(module)
+        self._emit_scheduler(module); self._emit_native_lib(module); self._emit_navigator(module); self._emit_http_helper(module)
         header = [f"import {imp}" for imp in sorted(list(self.imports))]; header.append("")
         self.final_source_map = [(out_l + len(header), in_l) for out_l, in_l in self.source_map]
         return "\n".join(header + self.output)
@@ -241,6 +241,30 @@ class KotlinEmitter:
         self.indent_level -= 1
         self._write("}")
 
+    def _emit_http_helper(self, module: IRModule):
+        if not self._uses_http(module):
+            return
+        self.imports.add("java.net.HttpURLConnection")
+        self.imports.add("java.net.URL")
+        self._write("")
+        self._write("// HTTP client support")
+        self._write("data class HttpResponse(val code: Int, val body: String) {")
+        self.indent_level += 1
+        self._write("val text: String get() = body")
+        self._write("val statusCode: Int get() = code")
+        self._write("fun json(): org.json.JSONObject = org.json.JSONObject(body)")
+        self._write("fun jsonArray(): org.json.JSONArray = org.json.JSONArray(body)")
+        self.indent_level -= 1
+        self._write("}")
+
+    def _uses_http(self, module: IRModule) -> bool:
+        for func in module.functions:
+            for block in func.blocks:
+                for inst in block.instructions:
+                    if isinstance(inst, MethodCall) and hasattr(inst.obj, 'type') and inst.obj.type.name == "laith.HttpClient":
+                        return True
+        return False
+
     def visit_top_level_instruction(self, inst: IRInstruction):
         if isinstance(inst, Constant):
             val = inst.value
@@ -360,6 +384,21 @@ class KotlinEmitter:
                 if inst.result: self._write(f"val {self._v(inst.result)} = listOf<Any?>({args})", inst)
                 else: self._write(f"listOf<Any?>({args})", inst)
                 return
+            if inst.func_name == "emptyMap":
+                if inst.result: self._write(f"val {self._v(inst.result)} = emptyMap<Any?, Any?>()", inst)
+                else: self._write("emptyMap<Any?, Any?>()", inst)
+                return
+            if inst.func_name == "pairOf":
+                a0 = self._v(inst.args[0]) if len(inst.args) > 0 else "null"
+                a1 = self._v(inst.args[1]) if len(inst.args) > 1 else "null"
+                if inst.result: self._write(f"val {self._v(inst.result)} = {a0} to {a1}", inst)
+                else: self._write(f"{a0} to {a1}", inst)
+                return
+            if inst.func_name == "mapOf":
+                args = ", ".join(self._v(a) if isinstance(a, IRValue) else "{}" for a in inst.args)
+                if inst.result: self._write(f"val {self._v(inst.result)} = mapOf<Any?, Any?>({args})", inst)
+                else: self._write(f"mapOf<Any?, Any?>({args})", inst)
+                return
             args = ", ".join(self._v(a) if isinstance(a, IRValue) else "{}" for a in inst.args)
             camel_func = snake_to_camel(inst.func_name)
             if inst.func_name == "vibrate": self._needs_local_context = True; self._write(f"PythonRuntime.vibrate(context, ({args} as? Number)?.toLong() ?: 500L)", inst)
@@ -427,6 +466,50 @@ class KotlinEmitter:
                     self._write(f"val {self._v(inst.result)} = {obj}.contains({key})", inst)
                 else:
                     self._write(f"{obj}.{inst.method_name}({args_str})", inst)
+            elif inst.obj.type.name == "laith.HttpClient" or inst.obj.id == "httpClient":
+                http_method = inst.method_name.upper()
+                url_val = self._v(inst.args[0]) if inst.args else "null"
+                headers_val = "null"
+                params_val = "null"
+                json_val = "null"
+                for k, v in inst.keywords.items():
+                    kw = snake_to_camel(k)
+                    if kw == "headers":
+                        headers_val = self._v(v) if isinstance(v, IRValue) else "null"
+                    elif kw == "params":
+                        params_val = self._v(v) if isinstance(v, IRValue) else "null"
+                    elif kw == "json":
+                        json_val = self._v(v) if isinstance(v, IRValue) else "null"
+                self._needs_local_context = True
+                self.imports.add("kotlinx.coroutines.Dispatchers")
+                self.imports.add("kotlinx.coroutines.withContext")
+                self._write(f"val {self._v(inst.result)} = withContext(Dispatchers.IO) {{", inst)
+                self.indent_level += 1
+                self._write(f"val conn = java.net.URL({url_val}.toString()).openConnection() as java.net.HttpURLConnection")
+                self._write(f"conn.requestMethod = \"{http_method}\"")
+                self._write(f"conn.connectTimeout = 15000")
+                self._write(f"conn.readTimeout = 15000")
+                if headers_val != "null":
+                    self._write(f"// headers = {headers_val}")
+                if params_val != "null":
+                    self._write(f"// params = {params_val}")
+                if json_val != "null":
+                    self._write(f"conn.doOutput = true")
+                    self._write(f"conn.setRequestProperty(\"Content-Type\", \"application/json\")")
+                    self._write(f"conn.outputStream.write({json_val}.toString().toByteArray())")
+                self._write(f"val code = conn.responseCode")
+                self._write(f"val body = conn.inputStream.bufferedReader().readText()")
+                self._write(f"conn.disconnect()")
+                self._write(f"HttpResponse(code, body)")
+                self.indent_level -= 1; self._write("}")
+            elif inst.obj.type.name == "laith.HttpResponse" or inst.obj.type.name == "HttpResponse":
+                camel_method = snake_to_camel(inst.method_name)
+                if inst.method_name == "json":
+                    self._write(f"val {self._v(inst.result)} = {obj}.json()", inst)
+                elif inst.method_name == "json_array" or camel_method == "jsonArray":
+                    self._write(f"val {self._v(inst.result)} = {obj}.jsonArray()", inst)
+                else:
+                    self._write(f"val {self._v(inst.result)} = {obj}.{camel_method}({args_str})", inst)
             elif inst.obj.type.name == "laith.Database" or inst.obj.type.name == "Database":
                 sql = self._v(inst.args[0]) if inst.args else '""'
                 params = ", ".join(self._v(a) if isinstance(a, IRValue) else "{}" for a in inst.args[1:])
@@ -474,8 +557,9 @@ class KotlinEmitter:
             else: self._write(f"val {self._v(inst.result)} = {inst.class_name}().apply {{ __init__({args}) }}", inst)
         elif isinstance(inst, AttributeGet):
             obj = "this" if (self.current_self_id and inst.obj.id == self.current_self_id) else self._v(inst.obj)
-            if "." in inst.obj.type.name: obj = inst.obj.type.name
-            self._write(f"val {self._v(inst.result)} = {obj}.{inst.attr_name}", inst)
+            if "." in inst.obj.type.name and inst.obj.type.name != "laith.HttpResponse": obj = inst.obj.type.name
+            attr_name = snake_to_camel(inst.attr_name)
+            self._write(f"val {self._v(inst.result)} = {obj}.{attr_name}", inst)
         elif isinstance(inst, AttributeSet):
             obj = "this" if (self.current_self_id and inst.obj.id == self.current_self_id) else self._v(inst.obj)
             self._write(f"{obj}.{inst.attr_name} = {self._v(inst.value)}", inst)

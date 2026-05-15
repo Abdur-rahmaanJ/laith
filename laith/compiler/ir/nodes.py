@@ -347,17 +347,24 @@ class MethodCall(IRInstruction):
     obj: IRValue
     method_name: str
     args: List[IRValue]
+    keywords: Dict[str, Union[IRValue, IRBlock]] = field(default_factory=dict)
     
     def get_operands(self) -> List[IRValue]:
-        return [self.obj] + self.args
+        ops = [self.obj] + self.args
+        for v in self.keywords.values():
+            if isinstance(v, IRValue):
+                ops.append(v)
+        return ops
 
     def has_side_effects(self) -> bool:
         return True
 
     def __repr__(self) -> str:
         args_str = ", ".join(v.id for v in self.args)
+        kws_str = ", ".join(f"{k}={v}" for k, v in self.keywords.items())
+        all_args = ", ".join(filter(None, [args_str, kws_str]))
         res = f"{self.result} = " if self.result else ""
-        return f"{res}method_call {self.obj.id}.{self.method_name}({args_str})"
+        return f"{res}method_call {self.obj.id}.{self.method_name}({all_args})"
 
 @dataclass(kw_only=True)
 class Return(IRInstruction):
