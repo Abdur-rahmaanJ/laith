@@ -80,6 +80,8 @@ class SemanticAnalyzer(ast.NodeVisitor):
         self.global_scope.define(Symbol("HttpResponse", SymbolKind.CLASS, type=Type("laith.HttpResponse")))
         self.global_scope.define(Symbol("resource", SymbolKind.FUNCTION, type=Type("laith.Resource")))
         self.global_scope.define(Symbol("Resource", SymbolKind.CLASS, type=Type("laith.Resource")))
+        self.global_scope.define(Symbol("requires_permission", SymbolKind.FUNCTION, type=VOID_TYPE))
+        self.global_scope.define(Symbol("remember_permission", SymbolKind.FUNCTION, type=Type("laith.PermissionState")))
 
     def analyze(self, tree: ast.AST):
         self.visit(tree)
@@ -121,6 +123,12 @@ class SemanticAnalyzer(ast.NodeVisitor):
         is_method = self.current_scope.kind == "class"
         return_type = self._resolve_type(node.returns) if node.returns else VOID_TYPE
         decorators = self._parse_decorators(node.decorator_list)
+        for d in decorators:
+            if d["name"] == "requires_permission":
+                perm = d["args"].get("0") or d["args"].get("permission", "")
+                if perm:
+                    pname = f"android.permission.{perm}" if not perm.startswith("android.") else perm
+                    self.required_permissions.add(pname)
         func_symbol = Symbol(name=node.name, kind=SymbolKind.FUNCTION, type=return_type, is_async=is_async,
                             metadata={"decorators": decorators, "is_method": is_method})
         self.current_scope.define(func_symbol)
@@ -140,6 +148,11 @@ class SemanticAnalyzer(ast.NodeVisitor):
             if isinstance(dec, ast.Call) and isinstance(dec.func, ast.Name):
                 name = dec.func.id
                 args = {k.arg: ast.literal_eval(k.value) for k in dec.keywords if k.arg}
+                for i, a in enumerate(dec.args):
+                    try:
+                        args[str(i)] = ast.literal_eval(a)
+                    except (ValueError, TypeError):
+                        args[str(i)] = str(getattr(a, 'id', ''))
                 decorators.append({"name": name, "args": args})
             elif isinstance(dec, ast.Name):
                 decorators.append({"name": dec.id, "args": {}})

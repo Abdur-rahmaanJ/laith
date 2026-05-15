@@ -165,6 +165,8 @@ class KotlinEmitter:
         if route_decorator:
             route_path = route_decorator["args"].get("path", f"/{camel_name}")
             self._write(f"@Route(\"{route_path}\")")
+        perm_decorator = next((d for d in func.decorators if d["name"] == "requires_permission"), None)
+        is_restricted = perm_decorator is not None
         if is_ui: self._write("@Composable")
         params = []
         for a in func.args:
@@ -174,12 +176,25 @@ class KotlinEmitter:
         self._write(f"{'suspend ' if func.is_async else ''}fun {camel_name}({', '.join(params)}): {map_type_to_kotlin(func.return_type)} {{{comment}")
         self.indent_level += 1
         prev_ui = self.current_func_is_ui; self.current_func_is_ui = is_ui
+        if is_restricted:
+            perm_name = perm_decorator["args"].get("0") or perm_decorator["args"].get("permission", "")
+            android_perm = f"android.Manifest.permission.{perm_name}" if not perm_name.startswith("android.") else perm_name
+            self.imports.add("android.content.pm.PackageManager")
+            self.imports.add("androidx.core.content.ContextCompat")
+            self._needs_local_context = True
+            self._write("val context = LocalContext.current")
+            self._write(f"if (ContextCompat.checkSelfPermission(context, {android_perm}) != PackageManager.PERMISSION_GRANTED) {{")
+            self.indent_level += 1
+            self._write("// Permission not granted — request it")
+            self._write(f"ActivityResultContracts.RequestPermission()")
+            self.indent_level -= 1
+            self._write("}")
         if is_ui:
             self._needs_local_context = False
             for block in func.blocks: self.visit_block(block)
             if self._needs_local_context: self._write("val context = LocalContext.current")
         else:
-            self._write("val context = laith.runtime.LaithContext.current")
+            if not is_restricted: self._write("val context = laith.runtime.LaithContext.current")
             for block in func.blocks: self.visit_block(block)
         self.indent_level -= 1; self._write("}")
         self.current_func_is_ui = prev_ui
@@ -367,6 +382,21 @@ class KotlinEmitter:
                     self.visit_block(cb)
                     self.indent_level -= 1
                 self._write("}"); return
+            if inst.func_name == "remember_permission":
+                perm_name = self._v(inst.args[0]) if inst.args else "null"
+                self.imports.add("androidx.compose.runtime.remember")
+                self.imports.add("androidx.compose.runtime.mutableStateOf")
+                self.imports.add("androidx.core.content.ContextCompat")
+                self.imports.add("android.content.pm.PackageManager")
+                self._needs_local_context = True
+                self._write(f"val {self._v(inst.result)} = remember {{", inst)
+                self.indent_level += 1
+                self._write("val granted = ContextCompat.checkSelfPermission(context,")
+                self._write(f"    android.Manifest.permission.{perm_name.replace('\"', '')}) == PackageManager.PERMISSION_GRANTED")
+                self._write(f"mutableStateOf(granted)")
+                self.indent_level -= 1
+                self._write("}", inst)
+                return
             if inst.func_name == "on_mount":
                 cb = inst.args[0] if inst.args and isinstance(inst.args[0], IRBlock) else None
                 self.imports.add("androidx.compose.runtime.LaunchedEffect")
