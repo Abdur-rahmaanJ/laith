@@ -93,6 +93,16 @@ A Material3 icon.
 An image composable.
 - **Example**: `Image("https://example.com/photo.png")`
 
+### `LazyColumn(items: list, body: callable)`
+An efficient vertically scrolling list that only composes visible items.
+- **Keywords**: `items` (iterable of data), `body` (lambda receiving each item).
+- **Example**: `LazyColumn(items=[1,2,3], body=lambda item: Text(item))`
+
+### `LazyRow(items: list, body: callable)`
+An efficient horizontally scrolling list.
+- **Keywords**: `items` (iterable of data), `body` (lambda receiving each item).
+- **Example**: `LazyRow(items=["a","b"], body=lambda item: Button(item, on_click=...))`
+
 ---
 
 ## Navigation
@@ -218,6 +228,65 @@ Marks a function to run as a persistent Android Foreground Service.
 
 ---
 
+## Networking
+
+### `http` (Async HTTP Client)
+
+A built-in variable providing async HTTP methods. All methods are `async` (must be `await`ed).
+
+- **Methods**:
+    - `await http.get(url)` → GET request, returns `HttpResponse`.
+    - `await http.post(url, json=dict)` → POST request with optional JSON body.
+
+### `HttpResponse`
+
+Returned by `http.get()` / `http.post()`.
+
+- **Properties/Methods**:
+    - `.text` → Response body as a string.
+    - `.status_code` → HTTP status code (int).
+    - `.json()` → Parse response body as JSON (returns dict).
+
+- **Example**:
+```python
+async def fetch_data():
+    response = await http.get("https://api.example.com/data")
+    data = response.json()
+    return data
+
+async def create_item():
+    response = await http.post("https://api.example.com/data", json={"name": "test"})
+    return response.status_code
+```
+
+---
+
+## Asynchronous UI State
+
+### `resource(async_fn)`
+Creates a resource wrapper around an async data-fetching function with loading/error/retry support.
+- **Argument**: A reference to an `async` function (passed by name, not called).
+- **Properties/Methods**:
+    - `.data` → The resolved data once loaded.
+    - `.loading` → Boolean indicating if the resource is currently loading.
+    - `.retry()` → Retry fetching the resource.
+    - `.cancel()` → Cancel an in-flight fetch.
+- **Example**:
+```python
+async def fetch_user() -> str:
+    return await http.get("https://api.example.com/user")
+
+def main_ui():
+    user = resource(fetch_user)
+    if user.loading:
+        Text("Loading...")
+    else:
+        Text(f"User: {user.data}")
+        Button("Retry", on_click=lambda: user.retry())
+```
+
+---
+
 ## IPC & Communication
 
 ### `Channel()`
@@ -284,4 +353,33 @@ Static utility class for raw file I/O in the app's internal storage.
 content = FileStorage.read_text("notes.txt")
 FileStorage.write_bytes("backup.bin", data)
 cache = FileStorage.get_cache_dir()
+```
+
+### `Database(name: str)`
+Creates a SQLite database connection backed by Android's `SQLiteOpenHelper`.
+- **Methods**:
+    - `query(sql, *params)` → Executes a SELECT query with optional bind params.
+    - `execute(sql, *params)` → Executes a statement (INSERT, CREATE, etc.).
+    - `close()` → Closes the database connection.
+- **Example**:
+```python
+db = Database("app.db")
+db.execute("CREATE TABLE IF NOT EXISTS users (id INTEGER, name TEXT)")
+db.execute("INSERT INTO users (name) VALUES (?)", "Alice")
+users = db.query("SELECT * FROM users WHERE id = ?", 1)
+db.close()
+```
+
+### `SecureStorage(name: str)`
+Creates an encrypted key-value store backed by `EncryptedSharedPreferences`.
+- **Methods**:
+    - `get(key)` → Retrieves an encrypted string value.
+    - `set(key, value)` → Stores an encrypted string value.
+    - `remove(key)` → Deletes a key.
+    - `contains(key)` → Checks if a key exists.
+- **Example**:
+```python
+vault = SecureStorage("secrets")
+vault.set("token", "abc123")
+token = vault.get("token")
 ```

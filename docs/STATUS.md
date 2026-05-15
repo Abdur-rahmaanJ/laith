@@ -44,6 +44,7 @@
 | Dialog, AlertDialog | ✅ | Modal dialogs. |
 | Snackbar | ✅ | Inline feedback. |
 | ModalBottomSheet | ✅ | Bottom sheet overlay. |
+| **LazyColumn / LazyRow** | ✅ | Efficient list rendering with automatic recycling. |
 
 ## Navigation (Completed)
 
@@ -60,13 +61,22 @@
 | `on_mount` / `on_dispose` | ✅ | Composable enter/leave hooks. |
 | `on_resume` / `on_pause` | ✅ | Screen lifecycle hooks with `LifecycleEventObserver`. |
 | `effect()` | ✅ | Reactive side effects watching state variables. |
+| **`resource` pattern** | ✅ | Loading/error/retry/cancel state management. |
 
 ## Storage & Persistence (Completed)
 
 | Feature | Status | Note |
 | --- | --- | --- |
-| **Preferences API** | ✅ | SharedPreferences-backed key-value store (`get`, `set`, `remove`, `contains`). |
-| **FileStorage** | ✅ | Raw file I/O (`read_text`, `write_bytes`, `delete`, `exists`, `get_cache_dir`). |
+| **Preferences API** | ✅ | SharedPreferences-backed key-value store. |
+| **SecureStorage** | ✅ | Encrypted SharedPreferences for sensitive data. |
+| **SQLite Database** | ✅ | SQLite with `query()` and `execute()` support. |
+| **FileStorage** | ✅ | Raw file I/O (`read_text`, `write_bytes`, `delete`). |
+
+## Networking (Completed)
+
+| Feature | Status | Note |
+| --- | --- | --- |
+| **Async HTTP client** | ✅ | `await http.get(url)` / `await http.post(url, json=...)` with JSON parsing. |
 
 ## Theming (Completed)
 
@@ -79,13 +89,8 @@
 
 | Feature | Note |
 | --- | --- |
-| SQLite with coroutines | Structured data persistence. |
-| SecureStorage | Encrypted SharedPreferences. |
-| Async HTTP client | `await http.get(url, ...)` with JSON parsing. |
 | Request/response interceptors | Auth tokens, logging, retries. |
 | File upload / download | With progress callbacks. |
-| LazyColumn / LazyRow | Efficient list rendering. |
-| `resource` pattern | Loading/error/retry state management. |
 | LSP / IDE Tooling | VSCode extension. |
 | Multi-module support | Importing other `.py` files. |
 | Plugin system | Firebase, Room, CameraX plugins. |
