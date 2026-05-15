@@ -655,7 +655,7 @@ class KotlinEmitter:
             else: self._write(f"val {self._v(inst.result)} = MutableStateFlow<Any?>({v})", inst)
         elif isinstance(inst, UICall):
             args = []
-            pass_args = inst.func_name not in {"Button", "TextField", "Checkbox", "Switch", "Slider"}
+            pass_args = inst.func_name not in {"Button", "TextField", "Checkbox", "Switch", "Slider", "AndroidView"}
             if pass_args: args = [self._v(a) for a in inst.args]
             has_callback = False
             for k, v in inst.keywords.items():
@@ -731,6 +731,17 @@ class KotlinEmitter:
                     self.indent_level += 1; self.visit_block(body); self.indent_level -= 1; self._write("}")
                 else:
                     self._write(f"Scaffold({', '.join(scaffold_args)}) {{}}", inst)
+            elif inst.func_name == "AndroidView":
+                factory_block = inst.args[0] if inst.args and isinstance(inst.args[0], IRBlock) else None
+                self.imports.add("androidx.compose.ui.viewinterop.AndroidView")
+                if factory_block:
+                    self._write("AndroidView(factory = { ctx ->", inst)
+                    self.indent_level += 1; prev = self.in_ui_lambda; self.in_ui_lambda = True
+                    self.visit_block(factory_block); self.indent_level -= 1; self.in_ui_lambda = prev
+                    self._write("})", inst)
+                else:
+                    factory_arg = self._v(inst.args[0]) if inst.args else "{}"
+                    self._write(f"AndroidView(factory = {factory_arg})", inst)
             elif inst.func_name == "Theme":
                 primary = next((self._v(v) for k, v in inst.keywords.items() if k == "primary"), None)
                 dark_primary = next((self._v(v) for k, v in inst.keywords.items() if k == "dark_primary"), None)
