@@ -185,7 +185,7 @@ def main_ui():
 
 | You get this | So you can... |
 |---|---|
-| **40+ Material3 widgets** | Build any UI — inputs, dialogs, snackbars, lazy lists, bottom sheets, navigation bars |
+| **40+ Material3 widgets** | Build any UI: inputs, dialogs, snackbars, lazy lists, bottom sheets, navigation bars |
 | **Stack Navigator** | Push/pop screens with params, deep linking via `@route` |
 | **Theme with dark mode** | One `Theme()` call generates Material3 light + dark color schemes |
 | **Reactive state** | `state()` with automatic UI sync — no boilerplate observers |
@@ -202,12 +202,3 @@ def main_ui():
 
 The generated output is **readable Kotlin** with your original Python names preserved (snake_case → camelCase, with source comments). You can open it in Android Studio and debug like any native project. If Laith ever stops being the right fit, you keep the code.
 
-### Three commands to your first app
-
-```bash
-laith init myapp
-cd myapp
-laith run
-```
-
-That's it. The compiler generates a full Android project, builds it, installs it on your device, and starts streaming logs.
