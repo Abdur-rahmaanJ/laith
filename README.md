@@ -185,18 +185,23 @@ def main_ui():
 
 | You get this | So you can... |
 |---|---|
-| **40+ Material3 widgets** | Build any UI: inputs, dialogs, snackbars, lazy lists, bottom sheets, navigation bars |
+| **40+ Material3 widgets** | Build any UI — inputs, dialogs, snackbars, lazy lists, navigation bars, bottom sheets |
+| **LazyColumn / LazyRow** | Render large lists efficiently with automatic recycling |
 | **Stack Navigator** | Push/pop screens with params, deep linking via `@route` |
-| **Theme with dark mode** | One `Theme()` call generates Material3 light + dark color schemes |
+| **Theme + dark mode** | One `Theme()` call generates Material3 light + dark color schemes + Android 12+ dynamic colors |
 | **Reactive state** | `state()` with automatic UI sync — no boilerplate observers |
-| **SQLite + Preferences + FileStorage** | Persist data however you need |
+| **SQLite + Preferences + FileStorage + SecureStorage** | Persist data: relational, key-value, encrypted, or raw files |
 | **Async HTTP client** | `await http.get(url)` with JSON parsing |
-| **`on_mount` / `on_dispose` / `on_resume` / `on_pause`** | Lifecycle hooks for sensors, timers, data loading |
+| **`resource()` pattern** | Loading/error/retry state management for async data |
+| **`on_mount` / `on_dispose` / `on_resume` / `on_pause` / `effect()`** | Lifecycle hooks for sensors, timers, data loading, reactive side effects |
 | **`@periodic_task` + `@foreground_service`** | Background work via WorkManager and Android Services |
+| **`@requires_permission` + `remember_permission`** | Declarative runtime permission handling |
+| **`AndroidView`** | Embed any native Android view (Maps, WebView, ExoPlayer, CameraX) |
 | **`@native` C++** | Mark hot functions for NDK compilation — zero JNI overhead |
 | **`laith doctor`** | Verify your JDK, Android SDK, and ADB setup in one command |
 | **Source maps** | Android crashes show Python line numbers, not Kotlin |
 | **`laith watch`** | Live-reload on device when you save a file |
+| **ProGuard / R8 + signing** | Release builds with obfuscation, keystore config with env var fallback |
 
 ### No magic, no lock-in
 
