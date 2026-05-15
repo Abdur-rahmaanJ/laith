@@ -74,6 +74,7 @@ class SemanticAnalyzer(ast.NodeVisitor):
         self.global_scope.define(Symbol("Theme", SymbolKind.FUNCTION, type=VOID_TYPE))
         self.global_scope.define(Symbol("LazyColumn", SymbolKind.FUNCTION, type=VOID_TYPE))
         self.global_scope.define(Symbol("LazyRow", SymbolKind.FUNCTION, type=VOID_TYPE))
+        self.global_scope.define(Symbol("Database", SymbolKind.CLASS, type=Type("laith.Database")))
 
     def analyze(self, tree: ast.AST):
         self.visit(tree)

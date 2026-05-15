@@ -413,6 +413,24 @@ class KotlinEmitter:
                     self._write(f"val {self._v(inst.result)} = {obj}.contains({key})", inst)
                 else:
                     self._write(f"{obj}.{inst.method_name}({args_str})", inst)
+            elif inst.obj.type.name == "laith.Database" or inst.obj.type.name == "Database":
+                sql = self._v(inst.args[0]) if inst.args else '""'
+                params = ", ".join(self._v(a) if isinstance(a, IRValue) else "{}" for a in inst.args[1:])
+                params_str = f", arrayOf({params})" if params else ""
+                if inst.method_name == "query":
+                    self._write(f"val {self._v(inst.result)} = {obj}.rawQuery({sql}{params_str})", inst)
+                    self.imports.add("android.database.Cursor")
+                elif inst.method_name == "execute":
+                    self._write(f"{obj}.execSQL({sql}{params_str})", inst)
+                elif inst.method_name == "close":
+                    self._write(f"{obj}.close()", inst)
+                elif inst.method_name == "delete":
+                    table = self._v(inst.args[0]) if inst.args else '""'
+                    where = self._v(inst.args[1]) if len(inst.args) > 1 else "null"
+                    where_args = ", ".join(self._v(a) if isinstance(a, IRValue) else "{}" for a in inst.args[2:])
+                    self._write(f"{obj}.delete({table}, {where}, arrayOf({where_args}))", inst)
+                else:
+                    self._write(f"{obj}.{inst.method_name}({args_str})", inst)
             elif inst.method_name == "set":
                 v = self._v(inst.args[0])
                 self._write(f"({obj} as? MutableStateFlow<Any?>)?.value = {v}", inst)
@@ -425,6 +443,11 @@ class KotlinEmitter:
                 name_arg = self._v(inst.args[0]) if inst.args else '"app"'
                 self._needs_local_context = True
                 self._write(f"val {self._v(inst.result)} = context.getSharedPreferences({name_arg}, android.content.Context.MODE_PRIVATE)", inst)
+                self.imports.add("android.content.Context")
+            elif inst.class_name == "Database":
+                db_name = self._v(inst.args[0]) if inst.args else '"app.db"'
+                self._needs_local_context = True
+                self._write(f"val {self._v(inst.result)} = context.openOrCreateDatabase({db_name}, Context.MODE_PRIVATE, null)", inst)
                 self.imports.add("android.content.Context")
             elif "." in inst.result.type.name: 
                  self._write(f"val {self._v(inst.result)} = {inst.result.type.name}({args})", inst)
