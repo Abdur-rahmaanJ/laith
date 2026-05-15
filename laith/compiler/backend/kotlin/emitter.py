@@ -22,8 +22,8 @@ def readable_name(val_id: str, name_registry: Dict[str, str]) -> str:
         return val_id.replace("fun_ref_", "")
     if val_id in name_registry:
         return name_registry[val_id]
-    if val_id == "context":
-        return "context"
+    if val_id in {"context", "item", "newVal", "new_val", "granted", "lat", "lon"}:
+        return val_id
     if val_id in {"void", "self"}:
         return val_id
     if val_id[0].isupper() and val_id not in name_registry:
@@ -351,6 +351,15 @@ class KotlinEmitter:
                 self._write("lifecycleOwner.lifecycle.addObserver(observer)")
                 self._write("onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }")
                 self.indent_level -= 1; self._write("}"); return
+            if inst.func_name == "emptyList":
+                if inst.result: self._write(f"val {self._v(inst.result)} = emptyList<Any?>()", inst)
+                else: self._write("emptyList<Any?>()", inst)
+                return
+            if inst.func_name == "listOf":
+                args = ", ".join(self._v(a) if isinstance(a, IRValue) else "{}" for a in inst.args)
+                if inst.result: self._write(f"val {self._v(inst.result)} = listOf<Any?>({args})", inst)
+                else: self._write(f"listOf<Any?>({args})", inst)
+                return
             args = ", ".join(self._v(a) if isinstance(a, IRValue) else "{}" for a in inst.args)
             camel_func = snake_to_camel(inst.func_name)
             if inst.func_name == "vibrate": self._needs_local_context = True; self._write(f"PythonRuntime.vibrate(context, ({args} as? Number)?.toLong() ?: 500L)", inst)
@@ -580,6 +589,32 @@ class KotlinEmitter:
                     self.indent_level += 1; self.visit_block(inst.body); self.indent_level -= 1
                 self._write("}")
                 self.imports.add("androidx.compose.material3.ModalBottomSheet")
+            elif inst.func_name == "LazyColumn":
+                items_val = next((self._v(v) for k, v in inst.keywords.items() if k == "items"), "emptyList<Any?>()")
+                body_block = inst.keywords.get("body", None)
+                self.imports.add("androidx.compose.foundation.lazy.LazyColumn")
+                self.imports.add("androidx.compose.foundation.lazy.items")
+                self._write(f"LazyColumn {{", inst)
+                self.indent_level += 1
+                self._write(f"items({items_val}) {{ item ->")
+                if isinstance(body_block, IRBlock):
+                    self.indent_level += 1; prev = self.in_ui_lambda; self.in_ui_lambda = True
+                    self.visit_block(body_block); self.indent_level -= 1; self.in_ui_lambda = prev
+                self._write("}")
+                self.indent_level -= 1; self._write("}")
+            elif inst.func_name == "LazyRow":
+                items_val = next((self._v(v) for k, v in inst.keywords.items() if k == "items"), "emptyList<Any?>()")
+                body_block = inst.keywords.get("body", None)
+                self.imports.add("androidx.compose.foundation.lazy.LazyRow")
+                self.imports.add("androidx.compose.foundation.lazy.items")
+                self._write(f"LazyRow {{", inst)
+                self.indent_level += 1
+                self._write(f"items({items_val}) {{ item ->")
+                if isinstance(body_block, IRBlock):
+                    self.indent_level += 1; prev = self.in_ui_lambda; self.in_ui_lambda = True
+                    self.visit_block(body_block); self.indent_level -= 1; self.in_ui_lambda = prev
+                self._write("}")
+                self.indent_level -= 1; self._write("}")
             elif inst.func_name in {"TopAppBar", "BottomAppBar", "FloatingActionButton", "NavigationBar", "NavigationBarItem"}:
                 if inst.func_name == "FloatingActionButton":
                     self._write("FloatingActionButton(", inst)

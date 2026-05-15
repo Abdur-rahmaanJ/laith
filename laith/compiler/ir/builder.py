@@ -280,6 +280,22 @@ class IRBuilder:
             raise UndefinedSymbolError(node.id, location=loc)
         return val
 
+    def visit_List(self, node: ast.List) -> IRValue:
+        res = IRValue(id=self._next_id(), type=ANY_TYPE)
+        if not node.elts:
+            self._add_inst(Call(result=res, func_name="emptyList", args=[]), node)
+        else:
+            self._add_inst(Call(result=res, func_name="listOf", args=[self.visit_expr(e) for e in node.elts]), node)
+        return res
+
+    def visit_List(self, node: ast.List) -> IRValue:
+        res = IRValue(id=self._next_id(), type=ANY_TYPE)
+        if not node.elts:
+            self._add_inst(Call(result=res, func_name="emptyList", args=[]), node)
+        else:
+            self._add_inst(Call(result=res, func_name="listOf", args=[self.visit_expr(e) for e in node.elts]), node)
+        return res
+
     def visit_BinOp(self, node: ast.BinOp) -> IRValue:
         l, r = self.visit_expr(node.left), self.visit_expr(node.right)
         op = {ast.Add: "add", ast.Sub: "sub", ast.Mult: "mul", ast.Div: "div"}[type(node.op)]
@@ -304,7 +320,7 @@ class IRBuilder:
                 self._add_inst(ClassInit(result=res, class_name=name, args=args), node)
                 return res
             
-            ui = {"Column", "Row", "Box", "Text", "Button", "TextField", "Checkbox", "Switch", "Slider", "Image", "Icon", "Spacer", "Scaffold", "TopAppBar", "BottomAppBar", "NavigationBar", "NavigationBarItem", "FloatingActionButton", "Dialog", "AlertDialog", "Snackbar", "ModalBottomSheet", "Theme"}
+            ui = {"Column", "Row", "Box", "Text", "Button", "TextField", "Checkbox", "Switch", "Slider", "Image", "Icon", "Spacer", "Scaffold", "TopAppBar", "BottomAppBar", "NavigationBar", "NavigationBarItem", "FloatingActionButton", "Dialog", "AlertDialog", "Snackbar", "ModalBottomSheet", "Theme", "LazyColumn", "LazyRow"}
             is_ui = name in ui
             args = []; imms = []; kids = []
             for a in node.args:
