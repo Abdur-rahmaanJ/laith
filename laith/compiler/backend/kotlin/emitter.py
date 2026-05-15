@@ -413,6 +413,20 @@ class KotlinEmitter:
                     self._write(f"val {self._v(inst.result)} = {obj}.contains({key})", inst)
                 else:
                     self._write(f"{obj}.{inst.method_name}({args_str})", inst)
+            elif inst.obj.type.name == "laith.SecureStorage" or inst.obj.type.name == "SecureStorage":
+                key = self._v(inst.args[0]) if inst.args else "null"
+                if inst.method_name == "get":
+                    default = self._v(inst.args[1]) if len(inst.args) > 1 else "null"
+                    self._write(f"val {self._v(inst.result)} = {obj}.getString({key}, {default}) ?: {default}", inst)
+                elif inst.method_name == "set":
+                    val = self._v(inst.args[1]) if len(inst.args) > 1 else "null"
+                    self._write(f"{obj}.edit().putString({key}, {val}.toString()).apply()", inst)
+                elif inst.method_name == "remove":
+                    self._write(f"{obj}.edit().remove({key}).apply()", inst)
+                elif inst.method_name == "contains":
+                    self._write(f"val {self._v(inst.result)} = {obj}.contains({key})", inst)
+                else:
+                    self._write(f"{obj}.{inst.method_name}({args_str})", inst)
             elif inst.obj.type.name == "laith.Database" or inst.obj.type.name == "Database":
                 sql = self._v(inst.args[0]) if inst.args else '""'
                 params = ", ".join(self._v(a) if isinstance(a, IRValue) else "{}" for a in inst.args[1:])
@@ -449,6 +463,12 @@ class KotlinEmitter:
                 self._needs_local_context = True
                 self._write(f"val {self._v(inst.result)} = context.openOrCreateDatabase({db_name}, Context.MODE_PRIVATE, null)", inst)
                 self.imports.add("android.content.Context")
+            elif inst.class_name == "SecureStorage":
+                name_arg = self._v(inst.args[0]) if inst.args else '"secure_prefs"'
+                self._needs_local_context = True
+                self._write(f"val {self._v(inst.result)} = SecureStorageUtil.getInstance(context, {name_arg})", inst)
+                self.imports.add("androidx.security.crypto.EncryptedSharedPreferences")
+                self.imports.add("androidx.security.crypto.MasterKey")
             elif "." in inst.result.type.name: 
                  self._write(f"val {self._v(inst.result)} = {inst.result.type.name}({args})", inst)
             else: self._write(f"val {self._v(inst.result)} = {inst.class_name}().apply {{ __init__({args}) }}", inst)
