@@ -95,7 +95,7 @@ class KotlinEmitter:
         for func in module.functions:
             if func.name == "global_init": continue
             self.visit_function(func); self.output.append("")
-        self._emit_scheduler(module); self._emit_native_lib(module); self._emit_navigator(module); self._emit_http_helper(module)
+        self._emit_scheduler(module); self._emit_native_lib(module); self._emit_navigator(module); self._emit_http_helper(module); self._emit_resource_helper(module)
         header = [f"import {imp}" for imp in sorted(list(self.imports))]; header.append("")
         self.final_source_map = [(out_l + len(header), in_l) for out_l, in_l in self.source_map]
         return "\n".join(header + self.output)
@@ -265,6 +265,48 @@ class KotlinEmitter:
                         return True
         return False
 
+    def _emit_resource_helper(self, module: IRModule):
+        if not self._uses_resource(module):
+            return
+        self._write("")
+        self._write("// Resource pattern for async data loading")
+        self._write("class Resource<T>(private val fetcher: suspend () -> T) {")
+        self.indent_level += 1
+        self._write("var data: T? = null")
+        self._write("var loading: Boolean = false")
+        self._write("var error: String? = null")
+        self._write("private var job: kotlinx.coroutines.Job? = null")
+        self._write("")
+        self._write("fun load() {")
+        self.indent_level += 1
+        self._write("job?.cancel()")
+        self._write("loading = true")
+        self._write("error = null")
+        self._write("job = kotlinx.coroutines.GlobalScope.launch {")
+        self.indent_level += 1
+        self._write("try { data = fetcher() } catch (e: Exception) { error = e.message } finally { loading = false }")
+        self.indent_level -= 1
+        self._write("}")
+        self.indent_level -= 1
+        self._write("}")
+        self._write("")
+        self._write("fun retry() { load() }")
+        self._write("fun cancel() { job?.cancel(); loading = false }")
+        self._write("")
+        self._write("init { load() }")
+        self.indent_level -= 1
+        self._write("}")
+        self.imports.add("kotlinx.coroutines.GlobalScope")
+        self.imports.add("kotlinx.coroutines.launch")
+
+    def _uses_resource(self, module: IRModule) -> bool:
+        for func in module.functions:
+            for block in func.blocks:
+                for inst in block.instructions:
+                    if isinstance(inst, Call) and inst.func_name == "resource":
+                        return True
+        return False
+
     def visit_top_level_instruction(self, inst: IRInstruction):
         if isinstance(inst, Constant):
             val = inst.value
@@ -375,6 +417,20 @@ class KotlinEmitter:
                 self._write("lifecycleOwner.lifecycle.addObserver(observer)")
                 self._write("onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }")
                 self.indent_level -= 1; self._write("}"); return
+            if inst.func_name == "resource":
+                func_arg = inst.args[0] if inst.args else None
+                func_name = ""
+                if func_arg and isinstance(func_arg, IRValue):
+                    func_name = func_arg.id.replace("fun_ref_", "")
+                self._write(f"val {self._v(inst.result)} = Resource({{", inst)
+                self.indent_level += 1
+                if func_name:
+                    self._write(f"withContext(Dispatchers.IO) {{ {snake_to_camel(func_name)}() }}")
+                self.indent_level -= 1
+                self._write("})")
+                self.imports.add("kotlinx.coroutines.withContext")
+                self.imports.add("kotlinx.coroutines.Dispatchers")
+                return
             if inst.func_name == "emptyList":
                 if inst.result: self._write(f"val {self._v(inst.result)} = emptyList<Any?>()", inst)
                 else: self._write("emptyList<Any?>()", inst)
@@ -557,7 +613,7 @@ class KotlinEmitter:
             else: self._write(f"val {self._v(inst.result)} = {inst.class_name}().apply {{ __init__({args}) }}", inst)
         elif isinstance(inst, AttributeGet):
             obj = "this" if (self.current_self_id and inst.obj.id == self.current_self_id) else self._v(inst.obj)
-            if "." in inst.obj.type.name and inst.obj.type.name != "laith.HttpResponse": obj = inst.obj.type.name
+            if "." in inst.obj.type.name and inst.obj.type.name not in ("laith.HttpResponse", "laith.Resource"): obj = inst.obj.type.name
             attr_name = snake_to_camel(inst.attr_name)
             self._write(f"val {self._v(inst.result)} = {obj}.{attr_name}", inst)
         elif isinstance(inst, AttributeSet):
