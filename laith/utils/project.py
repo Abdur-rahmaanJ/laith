@@ -24,6 +24,8 @@ class ProjectGenerator:
         self._generate_file("ic_launcher.xml.j2", "app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml")
         self._generate_file("ic_launcher.xml.j2", "app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml")
         
+        self._generate_file("proguard-rules.pro.j2", "app/proguard-rules.pro")
+
         if self.config.get("has_native"):
             self._generate_file("CMakeLists.txt.j2", "app/src/main/cpp/CMakeLists.txt")
             jni_dest = os.path.join(self.project_path, "app", "src", "main", "cpp", "jni_bridge.cpp")

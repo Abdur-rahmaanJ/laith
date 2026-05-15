@@ -1,0 +1,31 @@
+# Laith-generated ProGuard/R8 rules
+# This file is auto-generated — do not edit manually
+
+# Keep Compose runtime
+-keep class androidx.compose.** { *; }
+
+# Keep Kotlin coroutines
+-keep class kotlinx.coroutines.** { *; }
+
+# Keep Laith runtime
+-keep class laith.runtime.** { *; }
+
+# Keep generated application classes
+-keep class {{ namespace }}.** { *; }
+
+# Keep JNI bridge methods
+-keepclasseswithmembernames class * {
+    native <methods>;
+}
+
+# Keep data classes for serialization
+-keep class * {
+    @kotlinx.serialization.Serializable <fields>;
+}
+
+# General Android rules
+-keepattributes *Annotation*
+-keepattributes SourceFile,LineNumberTable
+-keep public class * extends android.app.Service
+-keep public class * extends android.content.BroadcastReceiver
+-keep public class * extends android.content.ContentProvider
