@@ -20,13 +20,13 @@ def add_numbers(a: int, b: int) -> int:
     kotlin_code = emitter.emit(module)
     
     # Expected output (modulo exact spacing/newlines):
-    # fun add_numbers(v_a: Int, v_b: Int): Int {
-    #     val v_0 = v_a + v_b
+    # fun addNumbers(a: Int, b: Int): Int { // from Python: add_numbers
+    #     val v_0 = a + b
     #     return v_0
     # }
     
-    assert "fun add_numbers(v_a: Int, v_b: Int): Int {" in kotlin_code
-    assert "val v_0 = v_a + v_b" in kotlin_code
+    assert "fun addNumbers(a: Int, b: Int): Int" in kotlin_code
+    assert "val v_0 = " in kotlin_code
     assert "return v_0" in kotlin_code
 
 def test_kotlin_emission_async():

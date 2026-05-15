@@ -163,33 +163,42 @@ Laith represents a fundamental shift in how Python is used for mobile developmen
 *   **Ecosystem Alignment**: Laith embraces the **Android Native Stack**, mapping Python directly to Kotlin Coroutines, WorkManager, and Jetpack Compose.
 *   **Direct NDK Access**: While Flutter requires complex MethodChannels, Laith allows you to mark Python functions with `@native` to generate optimized C++ and automated JNI bridges instantly.
 
-## Laith Feature Matrix
+## Why build with Laith?
 
-| Category | Feature | Phase | Status | Description |
-| :--- | :--- | :--- | :--- | :--- |
-| **Syntax** | Basic Constructs | 1 | ✅ Done | Support for `def`, `async def`, `return`, `if`, and assignments. |
-| **Syntax** | Type Inference | 1 | ✅ Done | Static analysis of `int`, `str`, `bool`, and `void` types. |
-| **Syntax** | Async/Await | 3 | ✅ Done | Direct mapping of Python `async` to Kotlin Coroutines. |
-| **Syntax** | For-Loops | 6 | ✅ Done | Basic `for i in range(n)` support in IR and backends. |
-| **OO Model** | Custom Classes | 6 | ✅ Done | Support for `class` definitions and instance attributes. |
-| **OO Model** | Constructors | 6 | ✅ Done | Support for `__init__` mapping to Kotlin initialization logic. |
-| **OO Model** | Instance Methods | 6 | ✅ Done | Methods with `self` binding and attribute access. |
-| **State** | Reactive State | 2 | ✅ Done | `state(value)` for UI-synchronized global or instance variables. |
-| **State** | State Observation | 6 | ✅ Done | Automatic `collectAsState()` for class-member reactive state. |
-| **IPC** | Channels | 4 | ✅ Done | `Channel()` for asynchronous event-driven communication. |
-| **UI** | Compose DSL | 2 | ✅ Done | High-fidelity mapping to `Column`, `Row`, `Box`, `Text`, `Button`. |
-| **UI** | Theming | 7 | ✅ Done | Automated generation of Material3 themes and adaptive icons. |
-| **Hardware** | SDK Bridging | 7 | ✅ Done | Dynamic access to any Android API (e.g., `Build.MODEL`). |
-| **Hardware** | API Discovery | 7 | ✅ Done | Real-time bytecode analysis of `android.jar` for symbol lookup. |
-| **Hardware** | Smart Permissions | 7 | ✅ Done | Automatic `uses-permission` injection via code inference. |
-| **Native** | @native C++ | 5 | ✅ Done | Direct compilation of Python functions to optimized C++ via NDK. |
-| **Native** | Zero-JNI | 5 | ✅ Done | Automated JNI bridge and name mangling generation. |
-| **Background** | Periodic Tasks | 3 | ✅ Done | `@periodic_task` mapping to Android WorkManager. |
-| **Background** | Services | 3 | ✅ Done | `@foreground_service` for long-running Android components. |
-| **Optimizers** | Constant Folding | 4 | ✅ Done | Compile-time evaluation of constant expressions. |
-| **Optimizers** | Dead Code (DCE) | 4 | ✅ Done | Automatic removal of unused instructions and variables. |
-| **Tooling** | CLI Orchestrator | 1 | ✅ Done | Unified `init`, `build`, `compile`, and `run` commands. |
-| **Tooling** | "Inner Loop" | 7 | ✅ Done | ABI-targeted `installDebug` with real-time logcat streaming. |
-| **Syntax** | Exceptions | 8 | 🛠️ Planned | `try` / `except` blocks for native error handling. |
-| **Optimizers** | Advanced Opts | 9 | 🛠️ Planned | Inlining, escape analysis, and loop unrolling. |
-| **Tooling** | LSP / IDE | 10 | 🛠️ Planned | VSCode extension for type hints and autocomplete. |
+### Write Python, Ship Native
+
+You write Python — Laith compiles it to **real** Jetpack Compose, Kotlin coroutines, and C++ via the NDK. No interpreter bundled. No bridge latency. Your app starts fast and stays fast.
+
+```python
+def main_ui():
+    count = state(0)
+    Scaffold(
+        top_bar=TopAppBar(),
+        body=Column(
+            Text(f"Taps: {count}"),
+            Button("Tap me", on_click=lambda: count.set(count.value + 1)),
+        ),
+    )
+```
+
+### Everything you need to ship
+
+| You get this | So you can... |
+|---|---|
+| **40+ Material3 widgets** | Build any UI: inputs, dialogs, snackbars, lazy lists, bottom sheets, navigation bars |
+| **Stack Navigator** | Push/pop screens with params, deep linking via `@route` |
+| **Theme with dark mode** | One `Theme()` call generates Material3 light + dark color schemes |
+| **Reactive state** | `state()` with automatic UI sync — no boilerplate observers |
+| **SQLite + Preferences + FileStorage** | Persist data however you need |
+| **Async HTTP client** | `await http.get(url)` with JSON parsing |
+| **`on_mount` / `on_dispose` / `on_resume` / `on_pause`** | Lifecycle hooks for sensors, timers, data loading |
+| **`@periodic_task` + `@foreground_service`** | Background work via WorkManager and Android Services |
+| **`@native` C++** | Mark hot functions for NDK compilation — zero JNI overhead |
+| **`laith doctor`** | Verify your JDK, Android SDK, and ADB setup in one command |
+| **Source maps** | Android crashes show Python line numbers, not Kotlin |
+| **`laith watch`** | Live-reload on device when you save a file |
+
+### No magic, no lock-in
+
+The generated output is **readable Kotlin** with your original Python names preserved (snake_case → camelCase, with source comments). You can open it in Android Studio and debug like any native project. If Laith ever stops being the right fit, you keep the code.
+

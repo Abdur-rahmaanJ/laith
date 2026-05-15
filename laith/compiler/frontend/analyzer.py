@@ -14,11 +14,19 @@ class SemanticAnalyzer(ast.NodeVisitor):
         self.current_class: Optional[Symbol] = None
         self.required_permissions: Set[str] = set()
         
-        self.bridge = None
-        if sdk_path: self.bridge = BridgeManager(sdk_path)
-        elif os.environ.get("ANDROID_HOME"): self.bridge = BridgeManager(os.environ.get("ANDROID_HOME"))
+        self._sdk_path = sdk_path
+        self._bridge: Optional[BridgeManager] = None
 
         self._register_builtins()
+
+    @property
+    def bridge(self) -> Optional[BridgeManager]:
+        if self._bridge is not None:
+            return self._bridge
+        sdk = self._sdk_path or os.environ.get("ANDROID_HOME")
+        if sdk:
+            self._bridge = BridgeManager(sdk)
+        return self._bridge
 
     def _register_builtins(self):
         self.global_scope.define(Symbol("int", SymbolKind.CLASS, type=INT_TYPE))
@@ -29,6 +37,23 @@ class SemanticAnalyzer(ast.NodeVisitor):
         self.global_scope.define(Symbol("Row", SymbolKind.FUNCTION, type=VOID_TYPE))
         self.global_scope.define(Symbol("Text", SymbolKind.FUNCTION, type=VOID_TYPE))
         self.global_scope.define(Symbol("Button", SymbolKind.FUNCTION, type=VOID_TYPE))
+        self.global_scope.define(Symbol("TextField", SymbolKind.FUNCTION, type=VOID_TYPE))
+        self.global_scope.define(Symbol("Checkbox", SymbolKind.FUNCTION, type=VOID_TYPE))
+        self.global_scope.define(Symbol("Switch", SymbolKind.FUNCTION, type=VOID_TYPE))
+        self.global_scope.define(Symbol("Slider", SymbolKind.FUNCTION, type=VOID_TYPE))
+        self.global_scope.define(Symbol("Scaffold", SymbolKind.FUNCTION, type=VOID_TYPE))
+        self.global_scope.define(Symbol("TopAppBar", SymbolKind.FUNCTION, type=VOID_TYPE))
+        self.global_scope.define(Symbol("BottomAppBar", SymbolKind.FUNCTION, type=VOID_TYPE))
+        self.global_scope.define(Symbol("NavigationBar", SymbolKind.FUNCTION, type=VOID_TYPE))
+        self.global_scope.define(Symbol("NavigationBarItem", SymbolKind.FUNCTION, type=VOID_TYPE))
+        self.global_scope.define(Symbol("FloatingActionButton", SymbolKind.FUNCTION, type=VOID_TYPE))
+        self.global_scope.define(Symbol("Spacer", SymbolKind.FUNCTION, type=VOID_TYPE))
+        self.global_scope.define(Symbol("Icon", SymbolKind.FUNCTION, type=VOID_TYPE))
+        self.global_scope.define(Symbol("Image", SymbolKind.FUNCTION, type=VOID_TYPE))
+        self.global_scope.define(Symbol("Dialog", SymbolKind.FUNCTION, type=VOID_TYPE))
+        self.global_scope.define(Symbol("AlertDialog", SymbolKind.FUNCTION, type=VOID_TYPE))
+        self.global_scope.define(Symbol("Snackbar", SymbolKind.FUNCTION, type=VOID_TYPE))
+        self.global_scope.define(Symbol("ModalBottomSheet", SymbolKind.FUNCTION, type=VOID_TYPE))
         self.global_scope.define(Symbol("state", SymbolKind.FUNCTION, type=ANY_TYPE))
         self.global_scope.define(Symbol("periodic_task", SymbolKind.FUNCTION, type=VOID_TYPE))
         self.global_scope.define(Symbol("native", SymbolKind.FUNCTION, type=VOID_TYPE))
@@ -37,6 +62,24 @@ class SemanticAnalyzer(ast.NodeVisitor):
         self.global_scope.define(Symbol("has_permission", SymbolKind.FUNCTION, type=BOOL_TYPE))
         self.global_scope.define(Symbol("get_location", SymbolKind.FUNCTION, type=VOID_TYPE))
         self.global_scope.define(Symbol("request_location_permission", SymbolKind.FUNCTION, type=VOID_TYPE))
+        self.global_scope.define(Symbol("Navigator", SymbolKind.CLASS, type=Type("laith.Navigator")))
+        self.global_scope.define(Symbol("route", SymbolKind.FUNCTION, type=VOID_TYPE))
+        self.global_scope.define(Symbol("on_mount", SymbolKind.FUNCTION, type=VOID_TYPE))
+        self.global_scope.define(Symbol("on_dispose", SymbolKind.FUNCTION, type=VOID_TYPE))
+        self.global_scope.define(Symbol("effect", SymbolKind.FUNCTION, type=VOID_TYPE))
+        self.global_scope.define(Symbol("Preferences", SymbolKind.CLASS, type=Type("laith.Preferences")))
+        self.global_scope.define(Symbol("FileStorage", SymbolKind.CLASS, type=Type("laith.FileStorage")))
+        self.global_scope.define(Symbol("on_resume", SymbolKind.FUNCTION, type=VOID_TYPE))
+        self.global_scope.define(Symbol("on_pause", SymbolKind.FUNCTION, type=VOID_TYPE))
+        self.global_scope.define(Symbol("Theme", SymbolKind.FUNCTION, type=VOID_TYPE))
+        self.global_scope.define(Symbol("LazyColumn", SymbolKind.FUNCTION, type=VOID_TYPE))
+        self.global_scope.define(Symbol("LazyRow", SymbolKind.FUNCTION, type=VOID_TYPE))
+        self.global_scope.define(Symbol("Database", SymbolKind.CLASS, type=Type("laith.Database")))
+        self.global_scope.define(Symbol("SecureStorage", SymbolKind.CLASS, type=Type("laith.SecureStorage")))
+        self.global_scope.define(Symbol("http", SymbolKind.VARIABLE, type=Type("laith.HttpClient")))
+        self.global_scope.define(Symbol("HttpResponse", SymbolKind.CLASS, type=Type("laith.HttpResponse")))
+        self.global_scope.define(Symbol("resource", SymbolKind.FUNCTION, type=Type("laith.Resource")))
+        self.global_scope.define(Symbol("Resource", SymbolKind.CLASS, type=Type("laith.Resource")))
 
     def analyze(self, tree: ast.AST):
         self.visit(tree)

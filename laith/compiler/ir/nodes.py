@@ -212,6 +212,34 @@ class ServiceStop(IRInstruction):
         return f"service_stop({self.func_name})"
 
 @dataclass(kw_only=True)
+class NavigatorPush(IRInstruction):
+    screen_func: str
+    kwargs: Dict[str, IRValue]
+
+    def get_operands(self) -> List[IRValue]:
+        return list(self.kwargs.values())
+
+    def has_side_effects(self) -> bool:
+        return True
+
+    def __repr__(self) -> str:
+        args = ", ".join(f"{k}={v.id}" for k, v in self.kwargs.items())
+        return f"navigator_push({self.screen_func}, {args})"
+
+@dataclass(kw_only=True)
+class NavigatorPop(IRInstruction):
+    result: Optional[IRValue] = None
+
+    def get_operands(self) -> List[IRValue]:
+        return [self.result] if self.result else []
+
+    def has_side_effects(self) -> bool:
+        return True
+
+    def __repr__(self) -> str:
+        return f"navigator_pop({self.result.id if self.result else ''})"
+
+@dataclass(kw_only=True)
 class Jump(IRInstruction):
     target_label: str
     
@@ -319,17 +347,24 @@ class MethodCall(IRInstruction):
     obj: IRValue
     method_name: str
     args: List[IRValue]
+    keywords: Dict[str, Union[IRValue, IRBlock]] = field(default_factory=dict)
     
     def get_operands(self) -> List[IRValue]:
-        return [self.obj] + self.args
+        ops = [self.obj] + self.args
+        for v in self.keywords.values():
+            if isinstance(v, IRValue):
+                ops.append(v)
+        return ops
 
     def has_side_effects(self) -> bool:
         return True
 
     def __repr__(self) -> str:
         args_str = ", ".join(v.id for v in self.args)
+        kws_str = ", ".join(f"{k}={v}" for k, v in self.keywords.items())
+        all_args = ", ".join(filter(None, [args_str, kws_str]))
         res = f"{self.result} = " if self.result else ""
-        return f"{res}method_call {self.obj.id}.{self.method_name}({args_str})"
+        return f"{res}method_call {self.obj.id}.{self.method_name}({all_args})"
 
 @dataclass(kw_only=True)
 class Return(IRInstruction):
