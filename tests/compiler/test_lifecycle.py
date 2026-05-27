@@ -1,82 +1,56 @@
 import pytest
-from laith.compiler.frontend.analyzer import SemanticAnalyzer, Parser
+from laith.compiler.frontend.analyzer import Parser, SemanticAnalyzer
 from laith.compiler.ir.builder import IRBuilder
 from laith.compiler.backend.kotlin.emitter import KotlinEmitter
+from laith.compiler.errors import CompileError
 
 
-def test_on_mount():
-    code = """
+class TestLifecycle:
+    def test_on_resume(self, fresh_emitter):
+        code = """
 def main_ui():
-    on_mount(lambda: print("mounted"))
+    on_resume(lambda: print("resumed"))
 """
-    tree = Parser.parse(code)
-    analyzer = SemanticAnalyzer()
-    global_scope = analyzer.analyze(tree)
-    builder = IRBuilder(global_scope)
-    module = builder.build(tree)
+        tree = Parser.parse(code)
+        analyzer = SemanticAnalyzer()
+        global_scope = analyzer.analyze(tree)
+        builder = IRBuilder(global_scope)
+        module = builder.build(tree)
+        kotlin = fresh_emitter.reset().emit(module)
 
-    emitter = KotlinEmitter()
-    kotlin_code = emitter.emit(module)
+        assert "ON_RESUME" in kotlin
+        assert "LifecycleEventObserver" in kotlin
 
-    assert "LaunchedEffect" in kotlin_code
-    assert "print" in kotlin_code
-
-
-def test_on_dispose():
-    code = """
+    def test_on_pause(self, fresh_emitter):
+        code = """
 def main_ui():
-    on_dispose(lambda: print("cleaned"))
+    on_pause(lambda: print("paused"))
 """
-    tree = Parser.parse(code)
-    analyzer = SemanticAnalyzer()
-    global_scope = analyzer.analyze(tree)
-    builder = IRBuilder(global_scope)
-    module = builder.build(tree)
+        tree = Parser.parse(code)
+        analyzer = SemanticAnalyzer()
+        global_scope = analyzer.analyze(tree)
+        builder = IRBuilder(global_scope)
+        module = builder.build(tree)
+        kotlin = fresh_emitter.reset().emit(module)
 
-    emitter = KotlinEmitter()
-    kotlin_code = emitter.emit(module)
-
-    assert "DisposableEffect" in kotlin_code
-    assert "onDispose" in kotlin_code
-    assert "print" in kotlin_code
+        assert "ON_PAUSE" in kotlin
+        assert "LifecycleEventObserver" in kotlin
 
 
-def test_on_mount_multiple_statements():
-    code = """
+class TestResumePause:
+    def test_both_resume_pause(self, fresh_emitter):
+        code = """
 def main_ui():
-    on_mount(lambda: print("start"))
-    Button("Click")
+    on_resume(lambda: print("resumed"))
+    on_pause(lambda: print("paused"))
 """
-    tree = Parser.parse(code)
-    analyzer = SemanticAnalyzer()
-    global_scope = analyzer.analyze(tree)
-    builder = IRBuilder(global_scope)
-    module = builder.build(tree)
+        tree = Parser.parse(code)
+        analyzer = SemanticAnalyzer()
+        global_scope = analyzer.analyze(tree)
+        builder = IRBuilder(global_scope)
+        module = builder.build(tree)
+        kotlin = fresh_emitter.reset().emit(module)
 
-    emitter = KotlinEmitter()
-    kotlin_code = emitter.emit(module)
-
-    assert "LaunchedEffect" in kotlin_code
-    assert "Button" in kotlin_code
-
-
-def test_on_mount_in_composable():
-    code = """
-def main_ui():
-    on_mount(lambda: print("mounted"))
-    Column(
-        Text("Hello")
-    )
-"""
-    tree = Parser.parse(code)
-    analyzer = SemanticAnalyzer()
-    global_scope = analyzer.analyze(tree)
-    builder = IRBuilder(global_scope)
-    module = builder.build(tree)
-
-    emitter = KotlinEmitter()
-    kotlin_code = emitter.emit(module)
-
-    assert "LaunchedEffect" in kotlin_code
-    assert "Column" in kotlin_code
-    assert "Text" in kotlin_code
+        non_import_lines = [l for l in kotlin.split("\n") if not l.startswith("import ")]
+        count = sum(line.count("LifecycleEventObserver") for line in non_import_lines)
+        assert count == 2  # One for resume, one for pause

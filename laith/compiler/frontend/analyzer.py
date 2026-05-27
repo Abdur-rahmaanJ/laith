@@ -23,9 +23,8 @@ class SemanticAnalyzer(ast.NodeVisitor):
     def bridge(self) -> Optional[BridgeManager]:
         if self._bridge is not None:
             return self._bridge
-        sdk = self._sdk_path or os.environ.get("ANDROID_HOME")
-        if sdk:
-            self._bridge = BridgeManager(sdk)
+        if self._sdk_path:
+            self._bridge = BridgeManager(self._sdk_path)
         return self._bridge
 
     def _register_builtins(self):
@@ -83,6 +82,14 @@ class SemanticAnalyzer(ast.NodeVisitor):
         self.global_scope.define(Symbol("requires_permission", SymbolKind.FUNCTION, type=VOID_TYPE))
         self.global_scope.define(Symbol("remember_permission", SymbolKind.FUNCTION, type=Type("laith.PermissionState")))
         self.global_scope.define(Symbol("AndroidView", SymbolKind.FUNCTION, type=VOID_TYPE))
+
+    def reset(self):
+        self.global_scope = Scope(name="global", kind="module")
+        self.current_scope = self.global_scope
+        self.current_class = None
+        self.required_permissions = set()
+        self._register_builtins()
+        return self
 
     def analyze(self, tree: ast.AST):
         self.visit(tree)
@@ -168,7 +175,7 @@ class SemanticAnalyzer(ast.NodeVisitor):
 
     def visit_Name(self, node: ast.Name):
         symbol = self.current_scope.lookup(node.id)
-        if not symbol and self.bridge:
+        if not symbol and self.bridge and node.id[0:1].isupper():
             fqn = self.bridge.find_class_by_short_name(node.id)
             if fqn:
                 metadata = self.bridge.lookup_class(fqn)

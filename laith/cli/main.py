@@ -222,7 +222,8 @@ def run(ctx, device: str, project: str):
 @main.command()
 @click.option("--device", "-d", help="Target device ID")
 @click.option("--project", "-p", help="Project directory")
-def watch(device: str, project: str):
+@click.option("--hot", is_flag=True, help="Use hot reload (apply changes without full restart)")
+def watch(device: str, project: str, hot: bool):
     """Watch for changes and live-reload on device."""
     import time
     from pathlib import Path
@@ -243,32 +244,83 @@ def watch(device: str, project: str):
     
     last_mtimes = get_mtimes()
     
+    package_name = config.identity.id
+    adb = ADBOrchestrator()
+    gradle = GradleOrchestrator(project_path)
+    
     try:
         while True:
             time.sleep(1)
             curr_mtimes = get_mtimes()
             
-            changed = False
+            changed_files = []
             for f, mtime in curr_mtimes.items():
                 if f not in last_mtimes or mtime > last_mtimes[f]:
-                    changed = True
-                    break
+                    changed_files.append(f)
             
-            if changed:
-                console.print("\n[bold yellow]Change detected, rebuilding...[/bold yellow]")
-                # Invoke build and run logic (simplified for now)
+            if changed_files:
+                console.print(f"\n[bold yellow]Change detected in {len(changed_files)} file(s), rebuilding...[/bold yellow]")
                 try:
-                    # We reuse build() and run() logic here
                     ctx = click.get_current_context()
-                    ctx.invoke(build, file=str(src_dir / "main.py"), project=project_path)
-                    ctx.invoke(run, device=device, project=project_path)
-                    console.print("[bold green]Live Preview Updated.[/bold green]")
+                    # Compile all changed files
+                    for f in changed_files:
+                        ctx.invoke(build, file=str(f), project=project_path)
+                    
+                    if hot:
+                        # Hot reload: push Kotlin and trigger applyChanges
+                        device_id = device or adb.list_devices()[0]
+                        adb.hot_reload(device_id, package_name, project_path)
+                        console.print("[bold green]Hot reload applied.[/bold green]")
+                    else:
+                        # Full rebuild and run
+                        ctx.invoke(run, device=device, project=project_path)
+                        console.print("[bold green]Live Preview Updated.[/bold green]")
                 except Exception as e:
                     console.print(f"[bold red]Rebuild failed:[/bold red] {str(e)}")
                 
                 last_mtimes = curr_mtimes
     except KeyboardInterrupt:
         console.print("\n[bold yellow]Stopping Live Preview...[/bold yellow]")
+
+@main.command()
+@click.option("--device", "-d", help="Target device ID")
+@click.option("--project", "-p", help="Project directory")
+@click.pass_context
+def hot_reload(ctx, device: str, project: str):
+    """Hot reload the app without full restart using applyChanges."""
+    config, project_path = ConfigManager.find_and_load(project or ".")
+    if not project_path:
+        console.print("[bold red]Error:[/bold red] No Laith project found.")
+        sys.exit(1)
+    
+    package_name = config.identity.id
+    src_dir = os.path.join(project_path, "src")
+    
+    console.print("[bold yellow]Hot reloading...[/bold yellow]")
+    
+    # 1. Recompile Python to Kotlin
+    try:
+        ctx.invoke(build, file=os.path.join(src_dir, "main.py"), project=project_path)
+    except Exception as e:
+        console.print(f"[bold red]Compilation failed:[/bold red] {str(e)}")
+        sys.exit(1)
+    
+    # 2. Incremental build via Gradle
+    gradle = GradleOrchestrator(project_path)
+    if not gradle.run_task("compileDebugKotlin", args=["--parallel"]):
+        console.print("[bold red]Kotlin compilation failed.[/bold red]")
+        sys.exit(1)
+    
+    # 3. Apply changes via ADB
+    adb = ADBOrchestrator()
+    try:
+        devices = adb.list_devices()
+        target = device or devices[0]
+        adb.hot_reload(target, package_name, project_path)
+        console.print("[bold green]Hot reload complete![/bold green]")
+    except Exception as e:
+        console.print(f"[bold red]Hot reload failed:[/bold red] {str(e)}")
+        sys.exit(1)
 
 @main.command(name="android")
 @click.option("--device", "-d", help="Target device ID")

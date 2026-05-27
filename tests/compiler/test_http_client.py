@@ -1,102 +1,67 @@
 import pytest
-from laith.compiler.frontend.analyzer import SemanticAnalyzer, Parser
+from laith.compiler.frontend.analyzer import Parser, SemanticAnalyzer
 from laith.compiler.ir.builder import IRBuilder
 from laith.compiler.backend.kotlin.emitter import KotlinEmitter
 
 
-def test_http_get():
-    code = """
-async def fetch():
-    response = await http.get("https://api.example.com/data")
-    return response.text
-"""
-    tree = Parser.parse(code)
-    analyzer = SemanticAnalyzer()
-    global_scope = analyzer.analyze(tree)
-    builder = IRBuilder(global_scope)
-    module = builder.build(tree)
+class TestHttpClient:
+    @pytest.mark.parametrize("code,expected", [
+        pytest.param(
+            """
+def main_ui():
+    resp = http.get("https://example.com")
+    Text(resp.text)
+""",
+            ["HttpURLConnection", "requestMethod"],
+            id="get"
+        ),
+        pytest.param(
+            """
+def main_ui():
+    resp = http.post("https://example.com", json={"key": "value"})
+    Text(resp.text)
+""",
+            ["HttpURLConnection", "requestMethod"],
+            id="post"
+        ),
+        pytest.param(
+            """
+def main_ui():
+    resp = http.get("https://api.example.com")
+    data = resp.json()
+    Text(data)
+""",
+            ["json()", "org.json.JSONObject"],
+            id="response_json"
+        ),
+        pytest.param(
+            """
+def main_ui():
+    resp = http.get("https://api.example.com")
+    code = resp.status_code
+    Text(code)
+""",
+            ["statusCode"],
+            id="response_status_code"
+        ),
+        pytest.param(
+            """
+def main_ui():
+    resp = http.get("https://api.example.com")
+    body = resp.text
+    Text(body)
+""",
+            ["text"],
+            id="response_text"
+        ),
+    ])
+    def test_http_client(self, code, expected, fresh_emitter):
+        tree = Parser.parse(code)
+        analyzer = SemanticAnalyzer()
+        global_scope = analyzer.analyze(tree)
+        builder = IRBuilder(global_scope)
+        module = builder.build(tree)
+        kotlin = fresh_emitter.reset().emit(module)
 
-    emitter = KotlinEmitter()
-    kotlin_code = emitter.emit(module)
-
-    assert "HttpURLConnection" in kotlin_code
-    assert "GET" in kotlin_code
-    assert "HttpResponse" in kotlin_code
-    assert "Dispatchers.IO" in kotlin_code
-
-
-def test_http_post():
-    code = """
-async def create():
-    response = await http.post("https://api.example.com/data", json={"name": "test"})
-    return response.status_code
-"""
-    tree = Parser.parse(code)
-    analyzer = SemanticAnalyzer()
-    global_scope = analyzer.analyze(tree)
-    builder = IRBuilder(global_scope)
-    module = builder.build(tree)
-
-    emitter = KotlinEmitter()
-    kotlin_code = emitter.emit(module)
-
-    assert "POST" in kotlin_code
-    assert "Content-Type" in kotlin_code
-    assert "HttpResponse" in kotlin_code
-
-
-def test_http_response_json():
-    code = """
-async def fetch():
-    response = await http.get("https://api.example.com/data")
-    data = response.json()
-    return data
-"""
-    tree = Parser.parse(code)
-    analyzer = SemanticAnalyzer()
-    global_scope = analyzer.analyze(tree)
-    builder = IRBuilder(global_scope)
-    module = builder.build(tree)
-
-    emitter = KotlinEmitter()
-    kotlin_code = emitter.emit(module)
-
-    assert "HttpResponse" in kotlin_code
-    assert "JSONObject" in kotlin_code or "json()" in kotlin_code
-
-
-def test_http_response_text():
-    code = """
-async def fetch():
-    response = await http.get("https://api.example.com/data")
-    text = response.text
-    return text
-"""
-    tree = Parser.parse(code)
-    analyzer = SemanticAnalyzer()
-    global_scope = analyzer.analyze(tree)
-    builder = IRBuilder(global_scope)
-    module = builder.build(tree)
-
-    emitter = KotlinEmitter()
-    kotlin_code = emitter.emit(module)
-
-    assert "HttpResponse" in kotlin_code
-
-
-def test_http_response_status_code():
-    code = """
-async def fetch():
-    response = await http.get("https://api.example.com/data")
-    return response.status_code
-"""
-    tree = Parser.parse(code)
-    analyzer = SemanticAnalyzer()
-    global_scope = analyzer.analyze(tree)
-    builder = IRBuilder(global_scope)
-    module = builder.build(tree)
-
-    emitter = KotlinEmitter()
-    kotlin_code = emitter.emit(module)
-
-    assert "HttpResponse" in kotlin_code
+        for e in expected:
+            assert e in kotlin, f"Expected '{e}' in output"

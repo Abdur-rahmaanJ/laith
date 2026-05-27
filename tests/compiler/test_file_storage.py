@@ -1,107 +1,69 @@
 import pytest
-from laith.compiler.frontend.analyzer import SemanticAnalyzer, Parser
+from laith.compiler.frontend.analyzer import Parser, SemanticAnalyzer
 from laith.compiler.ir.builder import IRBuilder
 from laith.compiler.backend.kotlin.emitter import KotlinEmitter
 
 
-def test_file_storage_read_text():
-    code = """
+class TestFileStorage:
+    @pytest.mark.parametrize("code,expected", [
+        pytest.param(
+            """
 def main_ui():
-    content = FileStorage.read_text("notes.txt")
-"""
-    tree = Parser.parse(code)
-    analyzer = SemanticAnalyzer()
-    global_scope = analyzer.analyze(tree)
-    builder = IRBuilder(global_scope)
-    module = builder.build(tree)
-
-    emitter = KotlinEmitter()
-    kotlin_code = emitter.emit(module)
-
-    assert "readText" in kotlin_code
-    assert "File" in kotlin_code
-
-
-def test_file_storage_write_bytes():
-    code = """
+    data = FileStorage.read_text("config.json")
+""",
+            ["readText"],
+            id="read_text"
+        ),
+        pytest.param(
+            """
 def main_ui():
-    FileStorage.write_bytes("data.bin", b"hello")
-"""
-    tree = Parser.parse(code)
-    analyzer = SemanticAnalyzer()
-    global_scope = analyzer.analyze(tree)
-    builder = IRBuilder(global_scope)
-    module = builder.build(tree)
-
-    emitter = KotlinEmitter()
-    kotlin_code = emitter.emit(module)
-
-    assert "writeBytes" in kotlin_code
-
-
-def test_file_storage_get_cache_dir():
-    code = """
+    FileStorage.write_text("backup.json", "data")
+""",
+            ["writeText"],
+            id="write_text"
+        ),
+        pytest.param(
+            """
 def main_ui():
-    path = FileStorage.get_cache_dir()
-"""
-    tree = Parser.parse(code)
-    analyzer = SemanticAnalyzer()
-    global_scope = analyzer.analyze(tree)
-    builder = IRBuilder(global_scope)
-    module = builder.build(tree)
-
-    emitter = KotlinEmitter()
-    kotlin_code = emitter.emit(module)
-
-    assert "cacheDir" in kotlin_code
-
-
-def test_file_storage_write_text():
-    code = """
+    FileStorage.write_bytes("data.bin", b"bytes")
+""",
+            ["writeBytes"],
+            id="write_bytes"
+        ),
+        pytest.param(
+            """
 def main_ui():
-    FileStorage.write_text("log.txt", "hello world")
-"""
-    tree = Parser.parse(code)
-    analyzer = SemanticAnalyzer()
-    global_scope = analyzer.analyze(tree)
-    builder = IRBuilder(global_scope)
-    module = builder.build(tree)
-
-    emitter = KotlinEmitter()
-    kotlin_code = emitter.emit(module)
-
-    assert "writeText" in kotlin_code
-
-
-def test_file_storage_delete():
-    code = """
+    if FileStorage.exists("config.json"):
+        Text("found")
+""",
+            ["exists"],
+            id="exists"
+        ),
+        pytest.param(
+            """
 def main_ui():
     FileStorage.delete("tmp.txt")
-"""
-    tree = Parser.parse(code)
-    analyzer = SemanticAnalyzer()
-    global_scope = analyzer.analyze(tree)
-    builder = IRBuilder(global_scope)
-    module = builder.build(tree)
-
-    emitter = KotlinEmitter()
-    kotlin_code = emitter.emit(module)
-
-    assert "delete" in kotlin_code
-
-
-def test_file_storage_exists():
-    code = """
+""",
+            ["delete"],
+            id="delete"
+        ),
+        pytest.param(
+            """
 def main_ui():
-    has = FileStorage.exists("config.json")
-"""
-    tree = Parser.parse(code)
-    analyzer = SemanticAnalyzer()
-    global_scope = analyzer.analyze(tree)
-    builder = IRBuilder(global_scope)
-    module = builder.build(tree)
+    dir = FileStorage.get_cache_dir()
+    Text(dir)
+""",
+            ["cacheDir"],
+            id="get_cache_dir"
+        ),
+    ])
+    def test_file_storage(self, code, expected, fresh_emitter):
+        tree = Parser.parse(code)
+        analyzer = SemanticAnalyzer()
+        global_scope = analyzer.analyze(tree)
+        builder = IRBuilder(global_scope)
+        module = builder.build(tree)
+        kotlin = fresh_emitter.reset().emit(module)
 
-    emitter = KotlinEmitter()
-    kotlin_code = emitter.emit(module)
-
-    assert "exists" in kotlin_code
+        for e in expected:
+            assert e in kotlin, f"Expected '{e}' in output"

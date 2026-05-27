@@ -55,8 +55,6 @@ class KotlinEmitter:
             "androidx.compose.foundation.layout.*",
             "androidx.compose.material3.*",
             "androidx.compose.ui.Modifier",
-            "androidx.navigation.compose.*",
-            "androidx.navigation.compose.rememberNavController",
         }
 
     def _indent(self): return "    " * self.indent_level
@@ -76,6 +74,32 @@ class KotlinEmitter:
                 self.name_registry[val.id] = val.id
             else:
                 self.name_registry[val.id] = f"v_{val.id}"
+
+    def reset(self):
+        self.output = []
+        self.indent_level = 0
+        self.global_values = set()
+        self.current_func_is_ui = False
+        self.in_ui_lambda = False
+        self.current_self_id = None
+        self.current_class_name = None
+        self.source_map = []
+        self.final_source_map = []
+        self.ui_functions = set()
+        self._needs_local_context = False
+        self._has_unused_result = False
+        self.name_registry = {}
+        self.imports = {
+            "laith.runtime.*",
+            "kotlinx.coroutines.*",
+            "kotlinx.coroutines.flow.*",
+            "androidx.compose.runtime.*",
+            "androidx.compose.ui.platform.LocalContext",
+            "androidx.compose.foundation.layout.*",
+            "androidx.compose.material3.*",
+            "androidx.compose.ui.Modifier",
+        }
+        return self
 
     def emit(self, module: IRModule) -> str:
         self.native_func_names = {f.name for f in module.functions if any(d["name"] == "native" for d in f.decorators)}
@@ -150,9 +174,8 @@ class KotlinEmitter:
         if len(method.args) > 0: self.current_self_id = method.args[0].id; self._write(f"val {self._v(method.args[0])} = this")
         prev_ui = self.current_func_is_ui; self.current_func_is_ui = is_ui
         if is_ui:
-            self._needs_local_context = False
+            self._write("val context = LocalContext.current")
             for block in method.blocks: self.visit_block(block)
-            if self._needs_local_context: self._write("val context = LocalContext.current")
         else:
             for block in method.blocks: self.visit_block(block)
         self.indent_level -= 1; self._write("}")
@@ -190,9 +213,9 @@ class KotlinEmitter:
             self.indent_level -= 1
             self._write("}")
         if is_ui:
-            self._needs_local_context = False
+            if not is_restricted:
+                self._write("val context = LocalContext.current")
             for block in func.blocks: self.visit_block(block)
-            if self._needs_local_context: self._write("val context = LocalContext.current")
         else:
             if not is_restricted: self._write("val context = laith.runtime.LaithContext.current")
             for block in func.blocks: self.visit_block(block)
@@ -229,6 +252,8 @@ class KotlinEmitter:
     def _emit_navigator(self, module: IRModule):
         if not self._needs_navigator(module):
             return
+        self.imports.add("androidx.navigation.compose.*")
+        self.imports.add("androidx.navigation.compose.rememberNavController")
         routes = self._get_routes(module)
         self._write("")
         self._write("// Navigation infrastructure")
@@ -493,6 +518,8 @@ class KotlinEmitter:
         elif isinstance(inst, MethodCall):
             args_str = ", ".join(self._v(a) if isinstance(a, IRValue) else "{}" for a in inst.args)
             obj = "this" if (self.current_self_id and inst.obj.id == self.current_self_id) else self._v(inst.obj)
+            if "." in inst.obj.type.name and inst.obj.type.name not in ("laith.HttpResponse", "laith.Resource") and obj == inst.obj.type.name.rsplit(".", 1)[-1]:
+                obj = inst.obj.type.name
             safe = not self.current_func_is_ui and inst.obj.id == "context"
             if safe: self._needs_local_context = True
             op = "?" if safe else ""
@@ -643,8 +670,9 @@ class KotlinEmitter:
             else: self._write(f"val {self._v(inst.result)} = {inst.class_name}().apply {{ __init__({args}) }}", inst)
         elif isinstance(inst, AttributeGet):
             obj = "this" if (self.current_self_id and inst.obj.id == self.current_self_id) else self._v(inst.obj)
-            if "." in inst.obj.type.name and inst.obj.type.name not in ("laith.HttpResponse", "laith.Resource"): obj = inst.obj.type.name
-            attr_name = snake_to_camel(inst.attr_name)
+            if "." in inst.obj.type.name and inst.obj.type.name not in ("laith.HttpResponse", "laith.Resource") and obj == inst.obj.type.name.rsplit(".", 1)[-1]:
+                obj = inst.obj.type.name
+            attr_name = inst.attr_name if inst.attr_name.isupper() else snake_to_camel(inst.attr_name)
             self._write(f"val {self._v(inst.result)} = {obj}.{attr_name}", inst)
         elif isinstance(inst, AttributeSet):
             obj = "this" if (self.current_self_id and inst.obj.id == self.current_self_id) else self._v(inst.obj)
