@@ -16,12 +16,20 @@ class SDKConfig:
     compile: int = 34
 
 @dataclass
+class SigningConfig:
+    keystore_path: str = ""
+    keystore_password: str = ""
+    key_alias: str = "laithkey"
+    key_password: str = ""
+
+@dataclass
 class AppConfig:
     name: str = "LaithApp"
     namespace: str = "com.example.laithapp"
     version: str = "1.0"
     identity: AppIdentity = field(default_factory=AppIdentity)
     sdk: SDKConfig = field(default_factory=SDKConfig)
+    signing: SigningConfig = field(default_factory=SigningConfig)
     permissions: List[str] = field(default_factory=list)
     dependencies: Dict[str, List[str]] = field(default_factory=lambda: {
         "implementation": [
@@ -43,6 +51,7 @@ class AppConfig:
     })
 
     def to_dict(self) -> Dict[str, Any]:
+        env = os.environ
         return {
             "app_name": self.name,
             "namespace": self.namespace,
@@ -53,6 +62,10 @@ class AppConfig:
             "target_sdk": self.sdk.target,
             "compile_sdk": self.sdk.compile,
             "has_native": self.features.get("native", False),
+            "keystore_path": self.signing.keystore_path or env.get("LAITH_KEYSTORE_PATH", ""),
+            "keystore_password": self.signing.keystore_password or env.get("LAITH_KEYSTORE_PASSWORD", ""),
+            "key_alias": self.signing.key_alias or env.get("LAITH_KEY_ALIAS", "laithkey"),
+            "key_password": self.signing.key_password or env.get("LAITH_KEY_PASSWORD", ""),
             "has_workers": True,
             "dependencies": self.dependencies,
             "permissions": self.permissions
@@ -79,6 +92,12 @@ class ConfigManager:
             config.sdk.target = sdk.get("target", config.sdk.target); config.sdk.compile = sdk.get("compile", config.sdk.compile)
         if "dependencies" in data: config.dependencies.update(data["dependencies"])
         if "features" in data: config.features.update(data["features"])
+        if "signing" in data:
+            sig = data["signing"]
+            config.signing.keystore_path = sig.get("keystore_path", config.signing.keystore_path)
+            config.signing.keystore_password = sig.get("keystore_password", config.signing.keystore_password)
+            config.signing.key_alias = sig.get("key_alias", config.signing.key_alias)
+            config.signing.key_password = sig.get("key_password", config.signing.key_password)
         return config
 
     @staticmethod

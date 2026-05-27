@@ -1,107 +1,80 @@
 import pytest
-from laith.compiler.frontend.analyzer import SemanticAnalyzer, Parser
+from laith.compiler.frontend.analyzer import Parser, SemanticAnalyzer
 from laith.compiler.ir.builder import IRBuilder
 from laith.compiler.backend.kotlin.emitter import KotlinEmitter
 
 
-def test_dialog():
-    code = """
+class TestDialogs:
+    @pytest.mark.parametrize("code,expected", [
+        pytest.param(
+            """
 def main_ui():
-    Dialog(
-        Text("Hello"),
-        on_dismiss=lambda: print("dismissed"),
-    )
-"""
-    tree = Parser.parse(code)
-    analyzer = SemanticAnalyzer()
-    global_scope = analyzer.analyze(tree)
-    builder = IRBuilder(global_scope)
-    module = builder.build(tree)
-
-    emitter = KotlinEmitter()
-    kotlin_code = emitter.emit(module)
-
-    assert "Dialog" in kotlin_code
-    assert "onDismissRequest" in kotlin_code
-
-
-def test_alert_dialog():
-    code = """
+    show = state(True)
+    if show:
+        Dialog(
+            Text("Hello"),
+            on_dismiss=lambda: show.set(False),
+        )
+""",
+            ["Dialog", "onDismissRequest"],
+            id="dialog"
+        ),
+        pytest.param(
+            """
 def main_ui():
     AlertDialog(
         title="Confirm",
-        text="Are you sure?",
-        on_confirm=lambda: print("confirmed"),
+        text="Delete?",
+        on_confirm=lambda: print("ok"),
+        on_dismiss=lambda: print("cancel"),
     )
-"""
-    tree = Parser.parse(code)
-    analyzer = SemanticAnalyzer()
-    global_scope = analyzer.analyze(tree)
-    builder = IRBuilder(global_scope)
-    module = builder.build(tree)
-
-    emitter = KotlinEmitter()
-    kotlin_code = emitter.emit(module)
-
-    assert "AlertDialog" in kotlin_code
-    assert "confirmButton" in kotlin_code
-
-
-def test_snackbar():
-    code = """
-def main_ui():
-    Snackbar("Hello")
-"""
-    tree = Parser.parse(code)
-    analyzer = SemanticAnalyzer()
-    global_scope = analyzer.analyze(tree)
-    builder = IRBuilder(global_scope)
-    module = builder.build(tree)
-
-    emitter = KotlinEmitter()
-    kotlin_code = emitter.emit(module)
-
-    assert "Snackbar" in kotlin_code
-
-
-def test_modal_bottom_sheet():
-    code = """
+""",
+            ["AlertDialog", "confirmButton"],
+            id="alert_dialog"
+        ),
+        pytest.param(
+            """
 def main_ui():
     ModalBottomSheet(
         Text("Content"),
         on_dismiss=lambda: print("dismissed"),
     )
-"""
-    tree = Parser.parse(code)
-    analyzer = SemanticAnalyzer()
-    global_scope = analyzer.analyze(tree)
-    builder = IRBuilder(global_scope)
-    module = builder.build(tree)
-
-    emitter = KotlinEmitter()
-    kotlin_code = emitter.emit(module)
-
-    assert "ModalBottomSheet" in kotlin_code
-
-
-def test_dialog_in_scaffold():
-    code = """
+""",
+            ["ModalBottomSheet"],
+            id="modal_bottom_sheet"
+        ),
+        pytest.param(
+            """
 def main_ui():
-    show = state(False)
+    Snackbar("Hello")
+""",
+            ["Snackbar"],
+            id="snackbar"
+        ),
+        pytest.param(
+            """
+def main_ui():
     Scaffold(
-        body=Button("Open", on_click=lambda: show.set(True)),
+        top_bar=TopAppBar(),
+        body=Column(
+            Dialog(
+                Text("Inner"),
+                on_dismiss=lambda: print("dismissed"),
+            ),
+        ),
     )
-    if show:
-        Dialog(on_dismiss=lambda: print("dismissed"))
-"""
-    tree = Parser.parse(code)
-    analyzer = SemanticAnalyzer()
-    global_scope = analyzer.analyze(tree)
-    builder = IRBuilder(global_scope)
-    module = builder.build(tree)
+""",
+            ["Dialog", "Scaffold"],
+            id="dialog_in_scaffold"
+        ),
+    ])
+    def test_dialogs(self, code, expected, fresh_emitter):
+        tree = Parser.parse(code)
+        analyzer = SemanticAnalyzer()
+        global_scope = analyzer.analyze(tree)
+        builder = IRBuilder(global_scope)
+        module = builder.build(tree)
+        kotlin = fresh_emitter.reset().emit(module)
 
-    emitter = KotlinEmitter()
-    kotlin_code = emitter.emit(module)
-
-    assert "Dialog" in kotlin_code
-    assert "Scaffold" in kotlin_code
+        for e in expected:
+            assert e in kotlin, f"Expected '{e}' in output"

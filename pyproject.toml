@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "laith"
-version = "0.1.0"
+version = "0.2.0"
 description = "A statically compiled Python to Native Android platform"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -37,7 +37,20 @@ exclude = ["exp*", "examples*", "tests*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+addopts = "-n auto --dist loadfile --no-header -q"
+markers = [
+    "slow: slow tests that take more than 1s",
+    "e2e: end-to-end tests that require native build toolchains",
+    "benchmark: compiler phase performance benchmarks",
+    "fuzz: fuzz tests (hypothesis-based)",
+]
 
 [tool.mypy]
 strict = true
 ignore_missing_imports = true
+
+[dependency-groups]
+dev = [
+    "pytest-fast-first>=1.0.5",
+    "pytest-xdist>=3.8.0",
+]

@@ -2,14 +2,13 @@ import pytest
 from laith.compiler.frontend.analyzer import Parser, SemanticAnalyzer
 from laith.compiler.ir.builder import IRBuilder
 from laith.compiler.backend.kotlin.emitter import KotlinEmitter
-from laith.compiler.errors import CompileError
 
 
-class TestLifecycle:
-    def test_on_resume(self, fresh_emitter):
+class TestAndroidView:
+    def test_basic(self, fresh_emitter):
         code = """
 def main_ui():
-    on_resume(lambda: print("resumed"))
+    AndroidView(factory=lambda: context)
 """
         tree = Parser.parse(code)
         analyzer = SemanticAnalyzer()
@@ -18,13 +17,12 @@ def main_ui():
         module = builder.build(tree)
         kotlin = fresh_emitter.reset().emit(module)
 
-        assert "ON_RESUME" in kotlin
-        assert "LifecycleEventObserver" in kotlin
+        assert "AndroidView" in kotlin
 
-    def test_on_pause(self, fresh_emitter):
+    def test_is_composable(self, fresh_emitter):
         code = """
 def main_ui():
-    on_pause(lambda: print("paused"))
+    AndroidView(factory=lambda: context)
 """
         tree = Parser.parse(code)
         analyzer = SemanticAnalyzer()
@@ -33,16 +31,13 @@ def main_ui():
         module = builder.build(tree)
         kotlin = fresh_emitter.reset().emit(module)
 
-        assert "ON_PAUSE" in kotlin
-        assert "LifecycleEventObserver" in kotlin
+        assert "@Composable" in kotlin
 
-
-class TestResumePause:
-    def test_both_resume_pause(self, fresh_emitter):
+    def test_with_context(self, fresh_emitter):
         code = """
 def main_ui():
-    on_resume(lambda: print("resumed"))
-    on_pause(lambda: print("paused"))
+    ctx = context
+    AndroidView(factory=lambda: ctx)
 """
         tree = Parser.parse(code)
         analyzer = SemanticAnalyzer()
@@ -51,6 +46,4 @@ def main_ui():
         module = builder.build(tree)
         kotlin = fresh_emitter.reset().emit(module)
 
-        non_import_lines = [l for l in kotlin.split("\n") if not l.startswith("import ")]
-        count = sum(line.count("LifecycleEventObserver") for line in non_import_lines)
-        assert count == 2  # One for resume, one for pause
+        assert "AndroidView" in kotlin

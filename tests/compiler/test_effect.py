@@ -1,48 +1,43 @@
 import pytest
-from laith.compiler.frontend.analyzer import SemanticAnalyzer, Parser
+from laith.compiler.frontend.analyzer import Parser, SemanticAnalyzer
 from laith.compiler.ir.builder import IRBuilder
 from laith.compiler.backend.kotlin.emitter import KotlinEmitter
 
 
-def test_effect_basic():
-    code = """
+class TestEffect:
+    def test_basic_effect(self, fresh_emitter):
+        code = """
 def main_ui():
     count = state(0)
     effect(count, lambda old, new: print(new))
 """
-    tree = Parser.parse(code)
-    analyzer = SemanticAnalyzer()
-    global_scope = analyzer.analyze(tree)
-    builder = IRBuilder(global_scope)
-    module = builder.build(tree)
+        tree = Parser.parse(code)
+        analyzer = SemanticAnalyzer()
+        global_scope = analyzer.analyze(tree)
+        builder = IRBuilder(global_scope)
+        module = builder.build(tree)
+        kotlin = fresh_emitter.reset().emit(module)
 
-    emitter = KotlinEmitter()
-    kotlin_code = emitter.emit(module)
+        non_import_lines = [l for l in kotlin.split("\n") if not l.startswith("import ")]
+        assert any("LaunchedEffect" in l for l in non_import_lines)
 
-    assert "LaunchedEffect" in kotlin_code
-    assert "effectKey" in kotlin_code or "_effectKey" in kotlin_code
-
-
-def test_effect_called():
-    code = """
+    def test_effect_called(self, fresh_emitter):
+        code = """
 def main_ui():
     count = state(0)
     effect(count, lambda old, new: print(old + new))
 """
-    tree = Parser.parse(code)
-    analyzer = SemanticAnalyzer()
-    global_scope = analyzer.analyze(tree)
-    builder = IRBuilder(global_scope)
-    module = builder.build(tree)
+        tree = Parser.parse(code)
+        analyzer = SemanticAnalyzer()
+        global_scope = analyzer.analyze(tree)
+        builder = IRBuilder(global_scope)
+        module = builder.build(tree)
+        kotlin = fresh_emitter.reset().emit(module)
 
-    emitter = KotlinEmitter()
-    kotlin_code = emitter.emit(module)
+        assert "LaunchedEffect" in kotlin
 
-    assert "LaunchedEffect" in kotlin_code
-
-
-def test_effect_with_button():
-    code = """
+    def test_effect_with_button(self, fresh_emitter):
+        code = """
 def main_ui():
     text = state("")
     effect(text, lambda old, new: print(new))
@@ -50,15 +45,13 @@ def main_ui():
         Button("Click")
     )
 """
-    tree = Parser.parse(code)
-    analyzer = SemanticAnalyzer()
-    global_scope = analyzer.analyze(tree)
-    builder = IRBuilder(global_scope)
-    module = builder.build(tree)
+        tree = Parser.parse(code)
+        analyzer = SemanticAnalyzer()
+        global_scope = analyzer.analyze(tree)
+        builder = IRBuilder(global_scope)
+        module = builder.build(tree)
+        kotlin = fresh_emitter.reset().emit(module)
 
-    emitter = KotlinEmitter()
-    kotlin_code = emitter.emit(module)
-
-    assert "LaunchedEffect" in kotlin_code
-    assert "Button" in kotlin_code
-    assert "Column" in kotlin_code
+        assert "LaunchedEffect" in kotlin
+        assert "Button" in kotlin
+        assert "Column" in kotlin

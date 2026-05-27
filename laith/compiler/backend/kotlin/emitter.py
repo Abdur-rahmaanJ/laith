@@ -55,8 +55,6 @@ class KotlinEmitter:
             "androidx.compose.foundation.layout.*",
             "androidx.compose.material3.*",
             "androidx.compose.ui.Modifier",
-            "androidx.navigation.compose.*",
-            "androidx.navigation.compose.rememberNavController",
         }
 
     def _indent(self): return "    " * self.indent_level
@@ -76,6 +74,32 @@ class KotlinEmitter:
                 self.name_registry[val.id] = val.id
             else:
                 self.name_registry[val.id] = f"v_{val.id}"
+
+    def reset(self):
+        self.output = []
+        self.indent_level = 0
+        self.global_values = set()
+        self.current_func_is_ui = False
+        self.in_ui_lambda = False
+        self.current_self_id = None
+        self.current_class_name = None
+        self.source_map = []
+        self.final_source_map = []
+        self.ui_functions = set()
+        self._needs_local_context = False
+        self._has_unused_result = False
+        self.name_registry = {}
+        self.imports = {
+            "laith.runtime.*",
+            "kotlinx.coroutines.*",
+            "kotlinx.coroutines.flow.*",
+            "androidx.compose.runtime.*",
+            "androidx.compose.ui.platform.LocalContext",
+            "androidx.compose.foundation.layout.*",
+            "androidx.compose.material3.*",
+            "androidx.compose.ui.Modifier",
+        }
+        return self
 
     def emit(self, module: IRModule) -> str:
         self.native_func_names = {f.name for f in module.functions if any(d["name"] == "native" for d in f.decorators)}
@@ -150,9 +174,8 @@ class KotlinEmitter:
         if len(method.args) > 0: self.current_self_id = method.args[0].id; self._write(f"val {self._v(method.args[0])} = this")
         prev_ui = self.current_func_is_ui; self.current_func_is_ui = is_ui
         if is_ui:
-            self._needs_local_context = False
+            self._write("val context = LocalContext.current")
             for block in method.blocks: self.visit_block(block)
-            if self._needs_local_context: self._write("val context = LocalContext.current")
         else:
             for block in method.blocks: self.visit_block(block)
         self.indent_level -= 1; self._write("}")
@@ -165,6 +188,8 @@ class KotlinEmitter:
         if route_decorator:
             route_path = route_decorator["args"].get("path", f"/{camel_name}")
             self._write(f"@Route(\"{route_path}\")")
+        perm_decorator = next((d for d in func.decorators if d["name"] == "requires_permission"), None)
+        is_restricted = perm_decorator is not None
         if is_ui: self._write("@Composable")
         params = []
         for a in func.args:
@@ -174,12 +199,25 @@ class KotlinEmitter:
         self._write(f"{'suspend ' if func.is_async else ''}fun {camel_name}({', '.join(params)}): {map_type_to_kotlin(func.return_type)} {{{comment}")
         self.indent_level += 1
         prev_ui = self.current_func_is_ui; self.current_func_is_ui = is_ui
+        if is_restricted:
+            perm_name = perm_decorator["args"].get("0") or perm_decorator["args"].get("permission", "")
+            android_perm = f"android.Manifest.permission.{perm_name}" if not perm_name.startswith("android.") else perm_name
+            self.imports.add("android.content.pm.PackageManager")
+            self.imports.add("androidx.core.content.ContextCompat")
+            self._needs_local_context = True
+            self._write("val context = LocalContext.current")
+            self._write(f"if (ContextCompat.checkSelfPermission(context, {android_perm}) != PackageManager.PERMISSION_GRANTED) {{")
+            self.indent_level += 1
+            self._write("// Permission not granted — request it")
+            self._write(f"ActivityResultContracts.RequestPermission()")
+            self.indent_level -= 1
+            self._write("}")
         if is_ui:
-            self._needs_local_context = False
+            if not is_restricted:
+                self._write("val context = LocalContext.current")
             for block in func.blocks: self.visit_block(block)
-            if self._needs_local_context: self._write("val context = LocalContext.current")
         else:
-            self._write("val context = laith.runtime.LaithContext.current")
+            if not is_restricted: self._write("val context = laith.runtime.LaithContext.current")
             for block in func.blocks: self.visit_block(block)
         self.indent_level -= 1; self._write("}")
         self.current_func_is_ui = prev_ui
@@ -214,6 +252,8 @@ class KotlinEmitter:
     def _emit_navigator(self, module: IRModule):
         if not self._needs_navigator(module):
             return
+        self.imports.add("androidx.navigation.compose.*")
+        self.imports.add("androidx.navigation.compose.rememberNavController")
         routes = self._get_routes(module)
         self._write("")
         self._write("// Navigation infrastructure")
@@ -367,6 +407,21 @@ class KotlinEmitter:
                     self.visit_block(cb)
                     self.indent_level -= 1
                 self._write("}"); return
+            if inst.func_name == "remember_permission":
+                perm_name = self._v(inst.args[0]) if inst.args else "null"
+                self.imports.add("androidx.compose.runtime.remember")
+                self.imports.add("androidx.compose.runtime.mutableStateOf")
+                self.imports.add("androidx.core.content.ContextCompat")
+                self.imports.add("android.content.pm.PackageManager")
+                self._needs_local_context = True
+                self._write(f"val {self._v(inst.result)} = remember {{", inst)
+                self.indent_level += 1
+                self._write("val granted = ContextCompat.checkSelfPermission(context,")
+                self._write(f"    android.Manifest.permission.{perm_name.replace('\"', '')}) == PackageManager.PERMISSION_GRANTED")
+                self._write(f"mutableStateOf(granted)")
+                self.indent_level -= 1
+                self._write("}", inst)
+                return
             if inst.func_name == "on_mount":
                 cb = inst.args[0] if inst.args and isinstance(inst.args[0], IRBlock) else None
                 self.imports.add("androidx.compose.runtime.LaunchedEffect")
@@ -463,6 +518,8 @@ class KotlinEmitter:
         elif isinstance(inst, MethodCall):
             args_str = ", ".join(self._v(a) if isinstance(a, IRValue) else "{}" for a in inst.args)
             obj = "this" if (self.current_self_id and inst.obj.id == self.current_self_id) else self._v(inst.obj)
+            if "." in inst.obj.type.name and inst.obj.type.name not in ("laith.HttpResponse", "laith.Resource") and obj == inst.obj.type.name.rsplit(".", 1)[-1]:
+                obj = inst.obj.type.name
             safe = not self.current_func_is_ui and inst.obj.id == "context"
             if safe: self._needs_local_context = True
             op = "?" if safe else ""
@@ -613,8 +670,9 @@ class KotlinEmitter:
             else: self._write(f"val {self._v(inst.result)} = {inst.class_name}().apply {{ __init__({args}) }}", inst)
         elif isinstance(inst, AttributeGet):
             obj = "this" if (self.current_self_id and inst.obj.id == self.current_self_id) else self._v(inst.obj)
-            if "." in inst.obj.type.name and inst.obj.type.name not in ("laith.HttpResponse", "laith.Resource"): obj = inst.obj.type.name
-            attr_name = snake_to_camel(inst.attr_name)
+            if "." in inst.obj.type.name and inst.obj.type.name not in ("laith.HttpResponse", "laith.Resource") and obj == inst.obj.type.name.rsplit(".", 1)[-1]:
+                obj = inst.obj.type.name
+            attr_name = inst.attr_name if inst.attr_name.isupper() else snake_to_camel(inst.attr_name)
             self._write(f"val {self._v(inst.result)} = {obj}.{attr_name}", inst)
         elif isinstance(inst, AttributeSet):
             obj = "this" if (self.current_self_id and inst.obj.id == self.current_self_id) else self._v(inst.obj)
@@ -625,7 +683,7 @@ class KotlinEmitter:
             else: self._write(f"val {self._v(inst.result)} = MutableStateFlow<Any?>({v})", inst)
         elif isinstance(inst, UICall):
             args = []
-            pass_args = inst.func_name not in {"Button", "TextField", "Checkbox", "Switch", "Slider"}
+            pass_args = inst.func_name not in {"Button", "TextField", "Checkbox", "Switch", "Slider", "AndroidView"}
             if pass_args: args = [self._v(a) for a in inst.args]
             has_callback = False
             for k, v in inst.keywords.items():
@@ -701,6 +759,17 @@ class KotlinEmitter:
                     self.indent_level += 1; self.visit_block(body); self.indent_level -= 1; self._write("}")
                 else:
                     self._write(f"Scaffold({', '.join(scaffold_args)}) {{}}", inst)
+            elif inst.func_name == "AndroidView":
+                factory_block = inst.args[0] if inst.args and isinstance(inst.args[0], IRBlock) else None
+                self.imports.add("androidx.compose.ui.viewinterop.AndroidView")
+                if factory_block:
+                    self._write("AndroidView(factory = { ctx ->", inst)
+                    self.indent_level += 1; prev = self.in_ui_lambda; self.in_ui_lambda = True
+                    self.visit_block(factory_block); self.indent_level -= 1; self.in_ui_lambda = prev
+                    self._write("})", inst)
+                else:
+                    factory_arg = self._v(inst.args[0]) if inst.args else "{}"
+                    self._write(f"AndroidView(factory = {factory_arg})", inst)
             elif inst.func_name == "Theme":
                 primary = next((self._v(v) for k, v in inst.keywords.items() if k == "primary"), None)
                 dark_primary = next((self._v(v) for k, v in inst.keywords.items() if k == "dark_primary"), None)

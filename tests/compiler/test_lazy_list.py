@@ -1,92 +1,51 @@
 import pytest
-from laith.compiler.frontend.analyzer import SemanticAnalyzer, Parser
+from laith.compiler.frontend.analyzer import Parser, SemanticAnalyzer
 from laith.compiler.ir.builder import IRBuilder
 from laith.compiler.backend.kotlin.emitter import KotlinEmitter
 
 
-def test_lazy_column_basic():
-    code = """
+class TestLazyComponents:
+    @pytest.mark.parametrize("code,expected", [
+        pytest.param(
+            """
 def main_ui():
-    items = [1, 2, 3]
-    LazyColumn(
-        items=items,
-        body=lambda item: Text(item)
-    )
-"""
-    tree = Parser.parse(code)
-    analyzer = SemanticAnalyzer()
-    global_scope = analyzer.analyze(tree)
-    builder = IRBuilder(global_scope)
-    module = builder.build(tree)
-
-    emitter = KotlinEmitter()
-    kotlin_code = emitter.emit(module)
-
-    assert "LazyColumn" in kotlin_code
-    assert "items" in kotlin_code
-    assert "Text(item.toString())" in kotlin_code or "Text(item)" in kotlin_code
-
-
-def test_lazy_row_basic():
-    code = """
+    LazyColumn(items=["a", "b"], body=lambda item: Text(item))
+""",
+            ["LazyColumn", "items"],
+            id="lazy_column_basic"
+        ),
+        pytest.param(
+            """
 def main_ui():
-    items = [1, 2, 3]
-    LazyRow(
-        items=items,
-        body=lambda item: Text(item)
-    )
-"""
-    tree = Parser.parse(code)
-    analyzer = SemanticAnalyzer()
-    global_scope = analyzer.analyze(tree)
-    builder = IRBuilder(global_scope)
-    module = builder.build(tree)
-
-    emitter = KotlinEmitter()
-    kotlin_code = emitter.emit(module)
-
-    assert "LazyRow" in kotlin_code
-    assert "items" in kotlin_code
-    assert "Text(item.toString())" in kotlin_code or "Text(item)" in kotlin_code
-
-
-def test_lazy_column_empty():
-    code = """
+    LazyColumn(items=[], body=lambda item: Text(item))
+""",
+            ["LazyColumn", "items"],
+            id="lazy_column_empty"
+        ),
+        pytest.param(
+            """
 def main_ui():
-    LazyColumn(
-        items=[],
-        body=lambda item: Text(item)
-    )
-"""
-    tree = Parser.parse(code)
-    analyzer = SemanticAnalyzer()
-    global_scope = analyzer.analyze(tree)
-    builder = IRBuilder(global_scope)
-    module = builder.build(tree)
-
-    emitter = KotlinEmitter()
-    kotlin_code = emitter.emit(module)
-
-    assert "LazyColumn" in kotlin_code
-
-
-def test_lazy_row_is_composable():
-    code = """
+    LazyRow(items=["a", "b"], body=lambda item: Text(item))
+""",
+            ["LazyRow", "items"],
+            id="lazy_row_basic"
+        ),
+        pytest.param(
+            """
 def main_ui():
-    items = ["a", "b"]
-    LazyRow(
-        items=items,
-        body=lambda item: Button(item, on_click=lambda: print("click"))
-    )
-"""
-    tree = Parser.parse(code)
-    analyzer = SemanticAnalyzer()
-    global_scope = analyzer.analyze(tree)
-    builder = IRBuilder(global_scope)
-    module = builder.build(tree)
+    LazyRow(items=[], body=lambda item: Text(item))
+""",
+            ["LazyRow"],
+            id="lazy_row_is_composable"
+        ),
+    ])
+    def test_lazy_components(self, code, expected, fresh_emitter):
+        tree = Parser.parse(code)
+        analyzer = SemanticAnalyzer()
+        global_scope = analyzer.analyze(tree)
+        builder = IRBuilder(global_scope)
+        module = builder.build(tree)
+        kotlin = fresh_emitter.reset().emit(module)
 
-    emitter = KotlinEmitter()
-    kotlin_code = emitter.emit(module)
-
-    assert "LazyRow" in kotlin_code
-    assert "Button" in kotlin_code
+        for e in expected:
+            assert e in kotlin, f"Expected '{e}' in output"

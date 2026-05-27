@@ -1,5 +1,6 @@
 import subprocess
 import os
+import time
 from typing import List, Optional, Dict
 from rich.console import Console
 
@@ -44,6 +45,30 @@ class ADBOrchestrator:
         
         console.print(f"Starting activity [bold green]{full_activity}[/bold green]...")
         self._run_adb(["-s", device_id, "shell", "am", "start", "-n", full_activity])
+
+    def hot_reload(self, device_id: str, package_name: str, project_path: str):
+        """Apply hot reload using Android's applyChanges or activity restart."""
+        console.print(f"Hot reloading on [bold cyan]{device_id}[/bold cyan]...")
+        
+        # Strategy 1: Try applyChanges (Android 11+)
+        try:
+            result = self._run_adb(["-s", device_id, "shell", "am", "apply-changes", package_name])
+            if result.returncode == 0:
+                console.print("[bold green]ApplyChanges succeeded![/bold green]")
+                return
+        except Exception:
+            pass
+        
+        # Strategy 2: Force-stop and restart the activity
+        console.print("[yellow]Falling back to activity restart...[/yellow]")
+        try:
+            self._run_adb(["-s", device_id, "shell", "am", "force-stop", package_name])
+            time.sleep(1)
+            self.start_activity(device_id, package_name)
+            console.print("[bold green]Activity restarted with new code.[/bold green]")
+        except Exception as e:
+            console.print(f"[bold red]Hot reload failed:[/bold red] {e}")
+            raise
 
     def stream_logs(self, device_id: str, package_name: str, project_path: Optional[str] = None):
         console.print(f"Streaming logs for [bold yellow]{package_name}[/bold yellow] (Ctrl+C to stop)...")
