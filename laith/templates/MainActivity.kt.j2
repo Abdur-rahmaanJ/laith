@@ -1,5 +1,6 @@
 package {{ namespace }}
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -9,6 +10,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import laith.runtime.PythonRuntime
+import laith.runtime.CrashOverlay
 
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.result.ActivityResultLauncher
@@ -35,16 +37,23 @@ class MainActivity : ComponentActivity() {
         scheduleLaithTasks(this)
         
         setContent {
-            Theme_LaithApp {
-                Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    color = MaterialTheme.colorScheme.background
-                ) {
-                    // Call the main UI entry point generated from Python
-                    mainUi()
+            CrashOverlay {
+                Theme_LaithApp {
+                    Surface(
+                        modifier = Modifier.fillMaxSize(),
+                        color = MaterialTheme.colorScheme.background
+                    ) {
+                        // Call the main UI entry point generated from Python
+                        mainUi()
+                    }
                 }
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
     }
 }
 

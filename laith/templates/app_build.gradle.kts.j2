@@ -20,6 +20,20 @@ android {
         }
     }
 
+    {% if has_flavors %}
+    flavorDimensions += "default"
+    productFlavors {
+        {% for fname, fdata in flavors.items() %}
+        {{ fname }} {
+            dimension = "default"
+            {% if fdata.application_id %}applicationId = "{{ fdata.application_id }}"{% endif %}
+            {% if fdata.version_name %}versionName = "{{ fdata.version_name }}"{% endif %}
+            {% if fdata.app_name %}resValue "string", "app_name", "{{ fdata.app_name }}"{% endif %}
+        }
+        {% endfor %}
+    }
+    {% endif %}
+
     signingConfigs {
         {% if keystore_path %}
         release {

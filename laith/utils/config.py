@@ -1,3 +1,4 @@
+from __future__ import annotations
 import os
 import tomli
 from typing import Dict, Any, List, Optional
@@ -21,6 +22,14 @@ class SigningConfig:
     keystore_password: str = ""
     key_alias: str = "laithkey"
     key_password: str = ""
+
+@dataclass
+class FlavorConfig:
+    application_id: str = ""
+    app_name: str = ""
+    version_code: int = 0
+    version_name: str = ""
+    api_endpoint: str = ""
 
 @dataclass
 class AppConfig:
@@ -49,10 +58,12 @@ class AppConfig:
         "compose": True,
         "native": True
     })
+    flavors: Dict[str, FlavorConfig] = field(default_factory=dict)
+    active_flavor: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         env = os.environ
-        return {
+        d = {
             "app_name": self.name,
             "namespace": self.namespace,
             "application_id": self.identity.id,
@@ -68,8 +79,26 @@ class AppConfig:
             "key_password": self.signing.key_password or env.get("LAITH_KEY_PASSWORD", ""),
             "has_workers": True,
             "dependencies": self.dependencies,
-            "permissions": self.permissions
+            "permissions": self.permissions,
+            "has_flavors": bool(self.flavors),
+            "flavors": {},
         }
+        for fname, fconfig in self.flavors.items():
+            d["flavors"][fname] = {
+                "application_id": fconfig.application_id,
+                "app_name": fconfig.app_name,
+                "version_code": fconfig.version_code,
+                "version_name": fconfig.version_name,
+                "api_endpoint": fconfig.api_endpoint,
+            }
+        # If active flavor selected, merge its overrides
+        if self.active_flavor and self.active_flavor in self.flavors:
+            f = self.flavors[self.active_flavor]
+            if f.application_id: d["application_id"] = f.application_id
+            if f.app_name: d["app_name"] = f.app_name
+            if f.version_code: d["version_code"] = f.version_code
+            if f.version_name: d["version_name"] = f.version_name
+        return d
 
 class ConfigManager:
     @staticmethod
@@ -98,6 +127,16 @@ class ConfigManager:
             config.signing.keystore_password = sig.get("keystore_password", config.signing.keystore_password)
             config.signing.key_alias = sig.get("key_alias", config.signing.key_alias)
             config.signing.key_password = sig.get("key_password", config.signing.key_password)
+        if "flavors" in data:
+            for fname, fdata in data["flavors"].items():
+                if isinstance(fdata, dict):
+                    config.flavors[fname] = FlavorConfig(
+                        application_id=fdata.get("application_id", ""),
+                        app_name=fdata.get("app_name", ""),
+                        version_code=fdata.get("version_code", 0),
+                        version_name=fdata.get("version_name", ""),
+                        api_endpoint=fdata.get("api_endpoint", ""),
+                    )
         return config
 
     @staticmethod
