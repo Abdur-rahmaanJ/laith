@@ -185,6 +185,78 @@ The `context` variable is a built-in that provides access to the Activity contex
 
 ---
 
+## Android Interop
+
+### `AndroidView(factory=lambda: ...)`
+
+Embeds an arbitrary Android View inside the Compose UI tree. Enables use of Maps, ExoPlayer, WebView, and any third-party Android view library.
+
+- **Args**: First positional arg is a factory lambda that receives an Android `Context` and returns a `View`.
+- **Example**:
+```python
+def main_ui():
+    AndroidView(factory=lambda: context)
+```
+
+### `KotlinComposable("fully.qualified.Name", arg1=val1, ...)`
+
+Calls any Jetpack Compose composable function by its fully-qualified Kotlin name. Enables gradual migration — write screens in Kotlin, call them from Laith.
+
+- **Args**: First positional arg is the fully-qualified composable function name (string). Remaining keyword args are passed as parameters.
+- **Example**:
+```python
+def main_ui():
+    KotlinComposable("com.example.MyScreen", title="Hello", count=42)
+```
+
+---
+
+## Runtime Permissions
+
+### `@requires_permission(permission)`
+
+Decorator that marks a function as requiring a specific Android permission. The compiler automatically:
+1. Adds the permission to `AndroidManifest.xml`
+2. Generates a runtime `checkSelfPermission` call at the function start
+
+- **Example**:
+```python
+@requires_permission("CAMERA")
+def take_photo():
+    # This function only runs if CAMERA permission is granted
+    pass
+```
+
+### `remember_permission(permission)`
+
+A composable that returns a reactive permission state object.
+
+- **Properties**:
+    - `.granted` → Boolean indicating if permission is granted.
+    - `.should_show_rationale` → Boolean indicating if rationale should be shown (after denial).
+    - `.request()` → Triggers the runtime permission dialog.
+- **Example**:
+```python
+def main_ui():
+    cam = remember_permission("CAMERA")
+    if cam.granted:
+        Text("Camera available")
+    else:
+        Button("Request Camera", on_click=lambda: cam.request())
+```
+
+---
+
+## Crash Overlay (Development)
+
+Laith wraps all UI content in a `CrashOverlay` error boundary. When an uncaught exception occurs during composition, a full-screen overlay appears with:
+- Error message and stack trace
+- "Reload App" button that restarts the Activity
+
+No manual setup is required — the crash overlay is automatically active in every Laith project.
+
+---
+
 ## State Management
 
 ### `state(initial_value: Any)`
@@ -237,6 +309,10 @@ A built-in variable providing async HTTP methods. All methods are `async` (must 
 - **Methods**:
     - `await http.get(url)` → GET request, returns `HttpResponse`.
     - `await http.post(url, json=dict)` → POST request with optional JSON body.
+    - `await http.download(url, local_path, on_progress=...)` → Download a file to disk with progress callbacks.
+    - `await http.upload(url, local_path, on_progress=...)` → Upload a file from disk with progress callbacks.
+    - `http.add_request_interceptor(func)` → Register a request interceptor that modifies headers.
+    - `http.add_response_interceptor(func)` → Register a response interceptor that transforms responses.
 
 ### `HttpResponse`
 
