@@ -73,6 +73,15 @@ compile = 34
 [features]
 compose = true
 native = true
+
+# Product flavors — uncomment and customize as needed:
+# [flavors.dev]
+# application_id = "com.example.{safe_name}.dev"
+# version_name = "1.0.0-dev"
+# 
+# [flavors.prod]
+# application_id = "com.example.{safe_name}"
+# version_name = "1.0.0"
 """)
 
     gen = ProjectGenerator(name, config_obj.to_dict())
@@ -98,7 +107,8 @@ native = true
 @click.option("--release", is_flag=True, help="Build in release mode")
 @click.option("--bundle", is_flag=True, help="Build AAB bundle instead of APK")
 @click.option("--project", "-p", help="Project directory")
-def compile(release: bool, bundle: bool, project: str):
+@click.option("--flavor", "-f", help="Product flavor to build (e.g. dev, prod)")
+def compile(release: bool, bundle: bool, project: str, flavor: str):
     """Compile the generated project into an Android APK/AAB."""
     # 0. Detect project
     config, project_path = ConfigManager.find_and_load(project or ".")
@@ -108,6 +118,12 @@ def compile(release: bool, bundle: bool, project: str):
         sys.exit(1)
 
     mode = "release" if release else "debug"
+    if flavor:
+        if flavor not in config.flavors:
+            console.print(f"[bold red]Error:[/bold red] Flavor '{flavor}' not found in laith.toml. Available: {', '.join(config.flavors.keys())}")
+            sys.exit(1)
+        config.active_flavor = flavor
+        console.print(f"[bold yellow]Building flavor: {flavor}[/bold yellow]")
     console.print(f"[bold yellow]Compiling Android app ({mode} mode)...[/bold yellow]")
     
     gradle = GradleOrchestrator(project_path)
@@ -115,9 +131,9 @@ def compile(release: bool, bundle: bool, project: str):
     if release:
         gradle.generate_signing_config()
         
-    task = f"assemble{mode.capitalize()}"
+    task = f"assemble{flavor.capitalize() if flavor else ''}{mode.capitalize()}"
     if bundle:
-        task = f"bundle{mode.capitalize()}"
+        task = f"bundle{flavor.capitalize() if flavor else ''}{mode.capitalize()}"
         
     if gradle.run_task(task):
         if bundle:
@@ -135,8 +151,9 @@ def compile(release: bool, bundle: bool, project: str):
 @main.command()
 @click.option("--device", "-d", help="Target device ID")
 @click.option("--project", "-p", help="Project directory")
+@click.option("--flavor", "-f", help="Product flavor to run (e.g. dev, prod)")
 @click.pass_context
-def run(ctx, device: str, project: str):
+def run(ctx, device: str, project: str, flavor: str):
     """Build, install, and run the app on a device."""
     # 1. Load config for package name
     if project:
@@ -154,7 +171,18 @@ def run(ctx, device: str, project: str):
         console.print("[bold red]Error:[/bold red] No Laith project found.")
         sys.exit(1)
 
+    if flavor:
+        if flavor not in config.flavors:
+            console.print(f"[bold red]Error:[/bold red] Flavor '{flavor}' not found in laith.toml. Available: {', '.join(config.flavors.keys())}")
+            sys.exit(1)
+        config.active_flavor = flavor
+        console.print(f"[bold yellow]Running flavor: {flavor}[/bold yellow]")
+
     package_name = config.identity.id
+    if flavor and config.active_flavor:
+        f = config.flavors.get(flavor)
+        if f and f.application_id:
+            package_name = f.application_id
     
     # 2. Device Discovery (Fail fast if no device before building)
     adb = ADBOrchestrator()
@@ -182,7 +210,7 @@ def run(ctx, device: str, project: str):
     src_dir = os.path.join(project, "src")
     if os.path.exists(os.path.join(src_dir, "main.py")):
         try:
-            ctx.invoke(build, file=os.path.join(src_dir, "main.py"), project=project)
+            ctx.invoke(build, file=os.path.join(src_dir, "main.py"), project=project, flavor=flavor)
         except Exception as e:
             console.print(f"[bold red]Build failed:[/bold red] {str(e)}")
             sys.exit(1)
@@ -204,8 +232,9 @@ def run(ctx, device: str, project: str):
         "--build-cache"
     ]
     
+    task_suffix = f"{flavor.capitalize() if flavor else ''}Debug"
     console.print(f"[bold yellow]Building and installing to {target_device} ({device_abi})...[/bold yellow]")
-    if not gradle.run_task("installDebug", args=perf_args, env_overrides=env):
+    if not gradle.run_task(f"install{task_suffix}", args=perf_args, env_overrides=env):
         console.print("[bold red]Build/Install failed. Aborting run.[/bold red]")
         sys.exit(1)
     
@@ -334,7 +363,8 @@ def android_cmd(ctx, device: str, project: str):
 @click.argument("file", type=click.Path(exists=True), required=False)
 @click.option("--output", "-o", help="Output Kotlin file (optional if --project is used)")
 @click.option("--project", "-p", help="Target Laith project directory")
-def build(file: str, output: str, project: str):
+@click.option("--flavor", "-f", help="Product flavor to build for")
+def build(file: str, output: str, project: str, flavor: str):
     """Compile a Python file to Kotlin."""
     if not file:
         file = "src/main.py"
@@ -352,6 +382,12 @@ def build(file: str, output: str, project: str):
         config = ConfigManager.load_from_file(os.path.join(project, "laith.toml"))
     else:
         config, project = ConfigManager.find_and_load(os.path.dirname(os.path.abspath(file)))
+    
+    if flavor:
+        if flavor not in config.flavors:
+            console.print(f"[bold red]Error:[/bold red] Flavor '{flavor}' not found in laith.toml. Available: {', '.join(config.flavors.keys())}")
+            sys.exit(1)
+        config.active_flavor = flavor
 
     with open(file, "r") as f:
         source = f.read()
