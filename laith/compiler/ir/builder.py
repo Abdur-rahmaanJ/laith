@@ -402,7 +402,12 @@ class IRBuilder:
                     inst = NavigatorPop(result=result_val)
                     self._add_inst(inst, node)
                     return IRValue(id="void", type=VOID_TYPE)
-            args = [self.visit_expr(a) for a in node.args]
+            args = []
+            for a in node.args:
+                if isinstance(a, ast.Name) and a.id in self.function_map:
+                    args.append(IRValue(id=f"fun_ref_{a.id}", type=VOID_TYPE))
+                else:
+                    args.append(self.visit_expr(a))
             kwargs = {}
             for kw in node.keywords:
                 if isinstance(kw.value, ast.Lambda):

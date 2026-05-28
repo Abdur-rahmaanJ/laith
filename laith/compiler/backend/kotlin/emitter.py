@@ -47,6 +47,7 @@ class KotlinEmitter:
         self._has_unused_result = False
         self.name_registry: Dict[str, str] = {}
         self._deep_link_routes: List[Dict[str, str]] = []
+        self.module: Optional[IRModule] = None
         self.imports = {
             "laith.runtime.*",
             "kotlinx.coroutines.*",
@@ -91,6 +92,7 @@ class KotlinEmitter:
         self._has_unused_result = False
         self.name_registry = {}
         self._deep_link_routes = []
+        self.module = None
         self.imports = {
             "laith.runtime.*",
             "kotlinx.coroutines.*",
@@ -104,6 +106,7 @@ class KotlinEmitter:
         return self
 
     def emit(self, module: IRModule) -> str:
+        self.module = module
         self.native_func_names = {f.name for f in module.functions if any(d["name"] == "native" for d in f.decorators)}
         for cls in module.classes:
             for m in cls.methods:
@@ -314,6 +317,23 @@ class KotlinEmitter:
         self._write("fun jsonArray(): org.json.JSONArray = org.json.JSONArray(body)")
         self.indent_level -= 1
         self._write("}")
+        if self._uses_interceptors(module):
+            self._write("")
+            self._write("// HTTP interceptor support")
+            self._write("val requestInterceptors = mutableListOf<(Map<String, String>) -> Map<String, String>>()")
+            self._write("val responseInterceptors = mutableListOf<(HttpResponse) -> HttpResponse>()")
+            self._write("")
+            self._write("fun addRequestInterceptor(interceptor: (Map<String, String>) -> Map<String, String>) {")
+            self.indent_level += 1
+            self._write("requestInterceptors.add(interceptor)")
+            self.indent_level -= 1
+            self._write("}")
+            self._write("")
+            self._write("fun addResponseInterceptor(interceptor: (HttpResponse) -> HttpResponse) {")
+            self.indent_level += 1
+            self._write("responseInterceptors.add(interceptor)")
+            self.indent_level -= 1
+            self._write("}")
 
     def _uses_http(self, module: IRModule) -> bool:
         for func in module.functions:
@@ -321,6 +341,22 @@ class KotlinEmitter:
                 for inst in block.instructions:
                     if isinstance(inst, MethodCall) and hasattr(inst.obj, 'type') and inst.obj.type.name == "laith.HttpClient":
                         return True
+        return False
+
+    def _uses_interceptors(self, module: IRModule) -> bool:
+        for func in module.functions:
+            for block in func.blocks:
+                for inst in block.instructions:
+                    if isinstance(inst, MethodCall) and hasattr(inst.obj, 'type') and inst.obj.type.name == "laith.HttpClient":
+                        if inst.method_name in ("add_request_interceptor", "add_response_interceptor"):
+                            return True
+        for cls in module.classes:
+            for method in cls.methods:
+                for block in method.blocks:
+                    for inst in block.instructions:
+                        if isinstance(inst, MethodCall) and hasattr(inst.obj, 'type') and inst.obj.type.name == "laith.HttpClient":
+                            if inst.method_name in ("add_request_interceptor", "add_response_interceptor"):
+                                return True
         return False
 
     def _emit_resource_helper(self, module: IRModule):
@@ -598,6 +634,13 @@ class KotlinEmitter:
                 else:
                     self._write(f"{obj}.{inst.method_name}({args_str})", inst)
             elif inst.obj.type.name == "laith.HttpClient" or inst.obj.id == "httpClient":
+                if inst.method_name in ("add_request_interceptor", "add_response_interceptor"):
+                    if inst.args and isinstance(inst.args[0], IRValue):
+                        callback_id = inst.args[0].id
+                        callback_name = snake_to_camel(callback_id.replace("fun_ref_", ""))
+                        camel_method = "addRequestInterceptor" if inst.method_name == "add_request_interceptor" else "addResponseInterceptor"
+                        self._write(f"{camel_method}(::{callback_name})", inst)
+                    return
                 http_method = inst.method_name.upper()
                 url_val = self._v(inst.args[0]) if inst.args else "null"
                 headers_val = "null"
@@ -620,8 +663,11 @@ class KotlinEmitter:
                 self._write(f"conn.requestMethod = \"{http_method}\"")
                 self._write(f"conn.connectTimeout = 15000")
                 self._write(f"conn.readTimeout = 15000")
-                if headers_val != "null":
-                    self._write(f"// headers = {headers_val}")
+                if headers_val != "null" or (self.module and self._uses_interceptors(self.module)):
+                    headers_init = headers_val if headers_val != "null" else "emptyMap()"
+                    self._write(f"var reqHeaders: Map<String, String> = {headers_init}")
+                    self._write(f"for (interceptor in requestInterceptors) {{ reqHeaders = interceptor(reqHeaders) }}")
+                    self._write(f"for ((key, value) in reqHeaders) {{ conn.setRequestProperty(key, value) }}")
                 if params_val != "null":
                     self._write(f"// params = {params_val}")
                 if json_val != "null":
@@ -631,7 +677,12 @@ class KotlinEmitter:
                 self._write(f"val code = conn.responseCode")
                 self._write(f"val body = conn.inputStream.bufferedReader().readText()")
                 self._write(f"conn.disconnect()")
-                self._write(f"HttpResponse(code, body)")
+                if self.module and self._uses_interceptors(self.module):
+                    self._write(f"var resp = HttpResponse(code, body)")
+                    self._write(f"for (interceptor in responseInterceptors) {{ resp = interceptor(resp) }}")
+                    self._write(f"resp")
+                else:
+                    self._write(f"HttpResponse(code, body)")
                 self.indent_level -= 1; self._write("}")
             elif inst.obj.type.name == "laith.HttpResponse" or inst.obj.type.name == "HttpResponse":
                 camel_method = snake_to_camel(inst.method_name)
