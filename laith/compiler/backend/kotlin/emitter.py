@@ -848,7 +848,7 @@ class KotlinEmitter:
             else: self._write(f"val {self._v(inst.result)} = MutableStateFlow<Any?>({v})", inst)
         elif isinstance(inst, UICall):
             args = []
-            pass_args = inst.func_name not in {"Button", "TextField", "Checkbox", "Switch", "Slider", "AndroidView"}
+            pass_args = inst.func_name not in {"Button", "TextField", "Checkbox", "Switch", "Slider", "AndroidView", "KotlinComposable"}
             if pass_args: args = [self._v(a) for a in inst.args]
             has_callback = False
             for k, v in inst.keywords.items():
@@ -935,6 +935,16 @@ class KotlinEmitter:
                 else:
                     factory_arg = self._v(inst.args[0]) if inst.args else "{}"
                     self._write(f"AndroidView(factory = {factory_arg})", inst)
+            elif inst.func_name == "KotlinComposable":
+                cname = inst.composable_name
+                kw_args = []
+                for k, v in inst.keywords.items():
+                    kw = snake_to_camel(k)
+                    if isinstance(v, IRBlock):
+                        kw_args.append(f"{kw} = {{ }}")
+                    else:
+                        kw_args.append(f"{kw} = {self._v(v)}")
+                self._write(f"{cname}({', '.join(kw_args)})", inst)
             elif inst.func_name == "Theme":
                 primary = next((self._v(v) for k, v in inst.keywords.items() if k == "primary"), None)
                 dark_primary = next((self._v(v) for k, v in inst.keywords.items() if k == "dark_primary"), None)

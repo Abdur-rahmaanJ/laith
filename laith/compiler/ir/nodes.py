@@ -106,6 +106,7 @@ class UICall(IRInstruction):
     args: List[IRValue] = field(default_factory=list)
     body: Optional[IRBlock] = None
     keywords: Dict[str, Union[IRValue, IRBlock]] = field(default_factory=dict)
+    composable_name: str = ""
     
     def get_operands(self) -> List[IRValue]:
         ops = self.args.copy()

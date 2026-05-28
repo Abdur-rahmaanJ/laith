@@ -82,6 +82,7 @@ class SemanticAnalyzer(ast.NodeVisitor):
         self.global_scope.define(Symbol("requires_permission", SymbolKind.FUNCTION, type=VOID_TYPE))
         self.global_scope.define(Symbol("remember_permission", SymbolKind.FUNCTION, type=Type("laith.PermissionState")))
         self.global_scope.define(Symbol("AndroidView", SymbolKind.FUNCTION, type=VOID_TYPE))
+        self.global_scope.define(Symbol("KotlinComposable", SymbolKind.FUNCTION, type=VOID_TYPE))
 
     def reset(self):
         self.global_scope = Scope(name="global", kind="module")

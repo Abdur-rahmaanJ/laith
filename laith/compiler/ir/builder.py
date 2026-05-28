@@ -332,7 +332,47 @@ class IRBuilder:
                 self._add_inst(ClassInit(result=res, class_name=name, args=args), node)
                 return res
             
-            ui = {"Column", "Row", "Box", "Text", "Button", "TextField", "Checkbox", "Switch", "Slider", "Image", "Icon", "Spacer", "Scaffold", "TopAppBar", "BottomAppBar", "NavigationBar", "NavigationBarItem", "FloatingActionButton", "Dialog", "AlertDialog", "Snackbar", "ModalBottomSheet", "Theme", "LazyColumn", "LazyRow", "AndroidView"}
+            if name == "KotlinComposable":
+                composable_name = ""
+                kc_remain = list(node.args)
+                if kc_remain:
+                    first = kc_remain[0]
+                    if isinstance(first, ast.Constant) and isinstance(first.value, str):
+                        composable_name = first.value
+                        kc_remain = kc_remain[1:]
+                kc_args = []; kc_imms = []
+                for a in kc_remain:
+                    if isinstance(a, ast.Call): pass
+                    else: kc_imms.append(a)
+                for a in kc_imms:
+                    if isinstance(a, ast.Lambda):
+                        self._push_scope()
+                        for la in a.args.args:
+                            self._set_value(la.arg, IRValue(id=la.arg, type=ANY_TYPE))
+                        lb = IRBlock(label="KotlinComposable_callback")
+                        pb_inner = self.current_block; self.current_block = lb
+                        self.visit_expr(a.body); self.current_block = pb_inner
+                        self._pop_scope(); kc_args.append(lb)
+                    elif isinstance(a, ast.Name) and a.id in self.function_map:
+                        kc_args.append(IRValue(id=f"fun_ref_{a.id}", type=VOID_TYPE))
+                    else:
+                        kc_args.append(self.visit_expr(a))
+                kws = {}
+                for kw in node.keywords:
+                    if isinstance(kw.value, ast.Lambda):
+                        self._push_scope()
+                        for la in kw.value.args.args:
+                            self._set_value(la.arg, IRValue(id=la.arg, type=ANY_TYPE))
+                        lb = IRBlock(label=f"KotlinComposable_{kw.arg}")
+                        pb_kw = self.current_block; self.current_block = lb
+                        self.visit_expr(kw.value.body); self.current_block = pb_kw
+                        self._pop_scope(); kws[kw.arg] = lb
+                    else:
+                        kws[kw.arg] = self.visit_expr(kw.value)
+                self._add_inst(UICall(func_name=name, args=kc_args, keywords=kws, composable_name=composable_name), node)
+                return IRValue(id="void", type=VOID_TYPE)
+
+            ui = {"Column", "Row", "Box", "Text", "Button", "TextField", "Checkbox", "Switch", "Slider", "Image", "Icon", "Spacer", "Scaffold", "TopAppBar", "BottomAppBar", "NavigationBar", "NavigationBarItem", "FloatingActionButton", "Dialog", "AlertDialog", "Snackbar", "ModalBottomSheet", "Theme", "LazyColumn", "LazyRow", "AndroidView", "KotlinComposable"}
             is_ui = name in ui
             args = []; imms = []; kids = []
             for a in node.args:
