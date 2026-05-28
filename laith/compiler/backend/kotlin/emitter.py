@@ -334,6 +334,69 @@ class KotlinEmitter:
             self._write("responseInterceptors.add(interceptor)")
             self.indent_level -= 1
             self._write("}")
+        if self._uses_download_upload(module):
+            self._write("")
+            self._write("// File download/upload with progress")
+            self.imports.add("java.io.File")
+            self.imports.add("java.io.FileInputStream")
+            self._write("suspend fun httpDownload(url: String, localPath: String, onProgress: ((Int) -> Unit)? = null): String = withContext(Dispatchers.IO) {")
+            self.indent_level += 1
+            self._write("val conn = java.net.URL(url).openConnection() as java.net.HttpURLConnection")
+            self._write("conn.requestMethod = \"GET\"")
+            self._write("conn.connectTimeout = 30000")
+            self._write("val totalBytes = conn.contentLength")
+            self._write("val input = conn.inputStream")
+            self._write("val file = java.io.File(localPath)")
+            self._write("file.outputStream().use { output ->")
+            self.indent_level += 1
+            self._write("val buffer = ByteArray(8192)")
+            self._write("var bytesRead: Int")
+            self._write("var totalRead = 0L")
+            self._write("while (input.read(buffer).also { bytesRead = it } != -1) {")
+            self.indent_level += 1
+            self._write("output.write(buffer, 0, bytesRead)")
+            self._write("totalRead += bytesRead")
+            self._write("if (totalBytes > 0 && onProgress != null) { onProgress(((totalRead * 100) / totalBytes).toInt()) }")
+            self.indent_level -= 1
+            self._write("}")
+            self.indent_level -= 1
+            self._write("}")
+            self._write("input.close()")
+            self._write("conn.disconnect()")
+            self._write("localPath")
+            self.indent_level -= 1
+            self._write("}")
+            self._write("")
+            self._write("suspend fun httpUpload(url: String, localPath: String, onProgress: ((Int) -> Unit)? = null): HttpResponse = withContext(Dispatchers.IO) {")
+            self.indent_level += 1
+            self._write("val file = java.io.File(localPath)")
+            self._write("val conn = java.net.URL(url).openConnection() as java.net.HttpURLConnection")
+            self._write("conn.requestMethod = \"POST\"")
+            self._write("conn.doOutput = true")
+            self._write("conn.connectTimeout = 30000")
+            self._write("conn.setRequestProperty(\"Content-Type\", \"application/octet-stream\")")
+            self._write("conn.setRequestProperty(\"Content-Length\", file.length().toString())")
+            self._write("val output = conn.outputStream")
+            self._write("val input = file.inputStream()")
+            self._write("val buffer = ByteArray(8192)")
+            self._write("var bytesRead: Int")
+            self._write("var totalRead = 0L")
+            self._write("val totalBytes = file.length()")
+            self._write("while (input.read(buffer).also { bytesRead = it } != -1) {")
+            self.indent_level += 1
+            self._write("output.write(buffer, 0, bytesRead)")
+            self._write("totalRead += bytesRead")
+            self._write("if (onProgress != null) { onProgress(((totalRead * 100) / totalBytes).toInt()) }")
+            self.indent_level -= 1
+            self._write("}")
+            self._write("input.close()")
+            self._write("output.close()")
+            self._write("val code = conn.responseCode")
+            self._write("val body = conn.inputStream.bufferedReader().readText()")
+            self._write("conn.disconnect()")
+            self._write("HttpResponse(code, body)")
+            self.indent_level -= 1
+            self._write("}")
 
     def _uses_http(self, module: IRModule) -> bool:
         for func in module.functions:
@@ -341,6 +404,15 @@ class KotlinEmitter:
                 for inst in block.instructions:
                     if isinstance(inst, MethodCall) and hasattr(inst.obj, 'type') and inst.obj.type.name == "laith.HttpClient":
                         return True
+        return False
+
+    def _uses_download_upload(self, module: IRModule) -> bool:
+        for func in module.functions:
+            for block in func.blocks:
+                for inst in block.instructions:
+                    if isinstance(inst, MethodCall) and hasattr(inst.obj, 'type') and inst.obj.type.name == "laith.HttpClient":
+                        if inst.method_name in ("download", "upload"):
+                            return True
         return False
 
     def _uses_interceptors(self, module: IRModule) -> bool:
@@ -640,6 +712,30 @@ class KotlinEmitter:
                         callback_name = snake_to_camel(callback_id.replace("fun_ref_", ""))
                         camel_method = "addRequestInterceptor" if inst.method_name == "add_request_interceptor" else "addResponseInterceptor"
                         self._write(f"{camel_method}(::{callback_name})", inst)
+                    return
+                if inst.method_name == "download":
+                    url_val = self._v(inst.args[0]) if inst.args else "null"
+                    path_val = self._v(inst.args[1]) if len(inst.args) > 1 else "null"
+                    on_progress_val = "null"
+                    for k, v in inst.keywords.items():
+                        if snake_to_camel(k) == "onProgress":
+                            if isinstance(v, IRValue):
+                                cid = v.id
+                                cb_name = snake_to_camel(cid.replace("fun_ref_", ""))
+                                on_progress_val = f"::{cb_name}"
+                    self._write(f"val {self._v(inst.result)} = httpDownload({url_val}, {path_val}, {on_progress_val})", inst)
+                    return
+                if inst.method_name == "upload":
+                    url_val = self._v(inst.args[0]) if inst.args else "null"
+                    path_val = self._v(inst.args[1]) if len(inst.args) > 1 else "null"
+                    on_progress_val = "null"
+                    for k, v in inst.keywords.items():
+                        if snake_to_camel(k) == "onProgress":
+                            if isinstance(v, IRValue):
+                                cid = v.id
+                                cb_name = snake_to_camel(cid.replace("fun_ref_", ""))
+                                on_progress_val = f"::{cb_name}"
+                    self._write(f"val {self._v(inst.result)} = httpUpload({url_val}, {path_val}, {on_progress_val})", inst)
                     return
                 http_method = inst.method_name.upper()
                 url_val = self._v(inst.args[0]) if inst.args else "null"

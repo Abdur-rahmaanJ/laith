@@ -421,6 +421,8 @@ class IRBuilder:
                     self.current_block = pb_kw
                     self._pop_scope()
                     kwargs[kw.arg] = lb
+                elif isinstance(kw.value, ast.Name) and kw.value.id in self.function_map:
+                    kwargs[kw.arg] = IRValue(id=f"fun_ref_{kw.value.id}", type=VOID_TYPE)
                 else:
                     kwargs[kw.arg] = self.visit_expr(kw.value)
             res = IRValue(id=self._next_id(), type=ANY_TYPE)
