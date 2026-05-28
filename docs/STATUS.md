@@ -77,6 +77,8 @@
 | Feature | Status | Note |
 | --- | --- | --- |
 | **Async HTTP client** | ✅ | `await http.get(url)` / `await http.post(url, json=...)` with JSON parsing. |
+| **Request/response interceptors** | ✅ | `http.add_request_interceptor(func)` / `http.add_response_interceptor(func)` for auth tokens, logging, retries. |
+| **File download / upload** | ✅ | `await http.download(url, path, on_progress=...)` / `await http.upload(url, path, on_progress=...)` with progress callbacks. |
 
 ## Theming (Completed)
 
@@ -85,15 +87,43 @@
 | **Theme provider** | ✅ | `Theme(primary, dark_primary, body=...)` with MaterialTheme. |
 | **Dynamic Color** | ✅ | `Theme(use_dynamic_colors=True)` for Android 12+ Monet. |
 
+## Build System (Completed)
+
+| Feature | Status | Note |
+| --- | --- | --- |
+| **Release builds** | ✅ | `laith build --release` with ProGuard/R8 and AAB support. |
+| **Signing configuration** | ✅ | Keystore config in `laith.toml` with env variable fallback. |
+| **Product flavors** | ✅ | `[flavors.dev]` / `[flavors.prod]` in `laith.toml`, `--flavor` CLI option, Gradle `productFlavors`. |
+
+## Permissions (Completed)
+
+| Feature | Status | Note |
+| --- | --- | --- |
+| **`@requires_permission` decorator** | ✅ | Auto-infers manifest permissions, generates runtime checks. |
+| **`remember_permission` composable** | ✅ | Reactive permission state with `.granted`, `.request()`. |
+
+## Android Interop (Completed)
+
+| Feature | Status | Note |
+| --- | --- | --- |
+| **AndroidView** | ✅ | Embed arbitrary Android views via factory lambda. |
+| **KotlinComposable** | ✅ | Call any Jetpack Compose function by fully-qualified name. |
+
+## Error Diagnostics (Completed)
+
+| Feature | Status | Note |
+| --- | --- | --- |
+| **Crash overlay** | ✅ | RedBox-style error boundary with stack trace and reload button. |
+
 ## Still Needs Work (Unimplemented)
 
 | Feature | Note |
 | --- | --- |
-| Request/response interceptors | Auth tokens, logging, retries. |
-| File upload / download | With progress callbacks. |
 | LSP / IDE Tooling | VSCode extension. |
 | Multi-module support | Importing other `.py` files. |
 | Plugin system | Firebase, Room, CameraX plugins. |
 | Testing framework | `laith test` and composable UI tests. |
 | Accessibility | Semantic labels and focus navigation. |
 | Performance profiling | Frame rate, recomposition counts. |
+| Typed SDK bindings | `laith generate-bindings` for `laith.android.*` stubs. |
+| `laith inspect` | Running app inspector with state tree view. |

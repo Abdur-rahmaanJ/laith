@@ -33,7 +33,7 @@ def main_ui():
 
 ## Screen Registration with `@route`
 
-Use the `@route` decorator to register a screen with a specific path for deep linking:
+Use the `@route` decorator to register a screen with a specific path, scheme, and host for deep linking:
 
 ```python
 @route(path="/profile")
@@ -43,7 +43,16 @@ def profile_screen():
 @route(path="/settings/:section")
 def settings_screen(section: str):
     Text(f"Settings: {section}")
+
+@route(path="/item/:id", scheme="myapp", host="example.com")
+def item_detail(item: str):
+    Text(f"Item: {item}")
 ```
+
+The compiler generates:
+- `NavHost` `deepLinks` entries for each registered route
+- `<intent-filter>` entries in `AndroidManifest.xml` for external deep links
+- `singleTask` launch mode and `onNewIntent` handling for proper deep link dispatch
 
 ## Generated Kotlin
 

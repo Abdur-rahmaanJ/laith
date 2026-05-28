@@ -34,6 +34,56 @@ async def fetch():
     data = resp.json()        # parsed JSON dict
 ```
 
+### File Download
+
+Download a file to local storage with optional progress tracking:
+
+```python
+async def download_file():
+    await http.download(
+        "https://example.com/photo.jpg",
+        "/storage/photos/photo.jpg",
+        on_progress=lambda pct: print(f"Download: {pct}%")
+    )
+```
+
+### File Upload
+
+Upload a file from local storage:
+
+```python
+async def upload_file():
+    await http.upload(
+        "https://api.example.com/upload",
+        "/storage/tmp/report.pdf",
+        on_progress=lambda pct: print(f"Upload: {pct}%")
+    )
+```
+
+### Request Interceptors
+
+Register a function that modifies every outgoing request's headers:
+
+```python
+def add_auth_token(headers):
+    headers["Authorization"] = "Bearer my-token"
+    return headers
+
+http.add_request_interceptor(add_auth_token)
+```
+
+### Response Interceptors
+
+Register a function that transforms every incoming response:
+
+```python
+def log_response(resp):
+    print(f"Got {resp.status_code} from {resp.url}")
+    return resp
+
+http.add_response_interceptor(log_response)
+```
+
 ## Generated Kotlin
 
 GET requests generate OkHttp or `java.net.URL` calls:
@@ -43,4 +93,11 @@ suspend fun fetchData(): String {
     val response = httpGet("https://api.example.com/data")
     return response.text
 }
+```
+
+Interceptors are stored in mutable lists and applied in order before/after each HTTP call:
+
+```kotlin
+val requestInterceptors = mutableListOf<(Map<String, String>) -> Map<String, String>>()
+val responseInterceptors = mutableListOf<(HttpResponse) -> HttpResponse>()
 ```
