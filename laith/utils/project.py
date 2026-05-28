@@ -67,5 +67,8 @@ class ProjectGenerator:
         if "inferred_permissions" in context: perms.update(context["inferred_permissions"])
         context["all_permissions"] = sorted(list(perms))
 
+        # Ensure deep_links defaults to empty list
+        context.setdefault("deep_links", [])
+
         output = template.render(**context)
         self._write_file(os.path.join(self.project_path, output_name), output)

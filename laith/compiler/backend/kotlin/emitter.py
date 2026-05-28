@@ -46,6 +46,7 @@ class KotlinEmitter:
         self._needs_local_context = False
         self._has_unused_result = False
         self.name_registry: Dict[str, str] = {}
+        self._deep_link_routes: List[Dict[str, str]] = []
         self.imports = {
             "laith.runtime.*",
             "kotlinx.coroutines.*",
@@ -89,6 +90,7 @@ class KotlinEmitter:
         self._needs_local_context = False
         self._has_unused_result = False
         self.name_registry = {}
+        self._deep_link_routes = []
         self.imports = {
             "laith.runtime.*",
             "kotlinx.coroutines.*",
@@ -240,14 +242,19 @@ class KotlinEmitter:
                             return True
         return False
 
-    def _get_routes(self, module: IRModule) -> List[tuple[str, str]]:
+    def _get_routes(self, module: IRModule) -> List[tuple[str, str, Optional[str], Optional[str]]]:
         routes = []
         for func in module.functions:
             route_dec = next((d for d in func.decorators if d["name"] == "route"), None)
             if route_dec:
                 path = route_dec["args"].get("path", f"/{snake_to_camel(func.name)}")
-                routes.append((path, snake_to_camel(func.name)))
+                scheme = route_dec["args"].get("scheme")
+                host = route_dec["args"].get("host")
+                routes.append((path, snake_to_camel(func.name), scheme, host))
         return routes
+
+    def get_deep_link_routes(self) -> List[Dict[str, str]]:
+        return self._deep_link_routes
 
     def _emit_navigator(self, module: IRModule):
         if not self._needs_navigator(module):
@@ -255,6 +262,9 @@ class KotlinEmitter:
         self.imports.add("androidx.navigation.compose.*")
         self.imports.add("androidx.navigation.compose.rememberNavController")
         routes = self._get_routes(module)
+        has_deep_links = any(scheme for _, _, scheme, _ in routes)
+        if has_deep_links:
+            self.imports.add("androidx.navigation.navDeepLink")
         self._write("")
         self._write("// Navigation infrastructure")
         self._write("@Composable")
@@ -262,12 +272,20 @@ class KotlinEmitter:
         self.indent_level += 1
         self._write("NavHost(navController = navController, startDestination = \"" + (routes[0][0] if routes else "/") + "\") {")
         self.indent_level += 1
-        for path, func_name in routes:
-            self._write(f"composable(\"{path}\") {{ {func_name}() }}")
+        for path, func_name, scheme, host in routes:
+            if scheme:
+                uri_pattern = f"{scheme}://{host or 'laith.app'}{path}"
+                self._write(f"composable(\"{path}\", deepLinks = listOf(navDeepLink {{ uriPattern = \"{uri_pattern}\" }})) {{ {func_name}() }}")
+            else:
+                self._write(f"composable(\"{path}\") {{ {func_name}() }}")
         self.indent_level -= 1
         self._write("}")
         self.indent_level -= 1
         self._write("}")
+        self._deep_link_routes = [
+            {"scheme": scheme, "host": host or "laith.app", "path": path}
+            for path, _, scheme, host in routes if scheme
+        ]
         self._write("")
         self._write("fun navigatorPush(screen: String) {")
         self.indent_level += 1

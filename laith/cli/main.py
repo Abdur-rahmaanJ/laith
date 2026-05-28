@@ -396,6 +396,9 @@ def build(file: str, output: str, project: str):
             
             # Pass inferred permissions to the generator
             config_dict["inferred_permissions"] = global_scope.metadata.get("required_permissions", [])
+
+            # Pass deep link routes for intent-filter generation
+            config_dict["deep_links"] = emitter.get_deep_link_routes()
             
             gen = ProjectGenerator(project, config_dict)
             gen.generate()

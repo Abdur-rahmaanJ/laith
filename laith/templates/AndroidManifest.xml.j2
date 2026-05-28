@@ -16,11 +16,23 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:theme="@style/Theme.LaithApp">
+            android:theme="@style/Theme.LaithApp"
+            android:launchMode="singleTask">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            {% for link in deep_links %}
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="{{ link.scheme }}"
+                    android:host="{{ link.host }}"
+                    android:pathPrefix="{{ link.path }}" />
+            </intent-filter>
+            {% endfor %}
         </activity>
 
         {% if has_workers %}
